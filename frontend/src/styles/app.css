@@ -597,3 +597,264 @@ body {
     max-height: 45vh;
   }
 }
+
+/* --- generative features (Samantekt, Á mannamáli) --------------------------- */
+
+.ritarinn-generation {
+  max-width: 60rem;
+  height: 100%;
+  padding: 1.5rem 1.5rem 3rem;
+  overflow-y: auto;
+}
+
+.ritarinn-generation__heading {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.ritarinn-generation__controls {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.ritarinn-generation__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.ritarinn-generation__note {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--ritarinn-border);
+  border-radius: var(--ritarinn-radius);
+  background: var(--ritarinn-surface);
+  color: var(--ritarinn-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.ritarinn-options {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.ritarinn-options__legend {
+  padding: 0;
+  margin-bottom: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-options__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ritarinn-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--ritarinn-border);
+  border-radius: 999px;
+  background: var(--ritarinn-surface);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.ritarinn-chip input {
+  /* The chip itself is the control; the radio stays for keyboard and
+     assistive technology but is visually replaced. */
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ritarinn-chip.is-selected {
+  border-color: var(--ritarinn-accent);
+  background: var(--ritarinn-accent-soft);
+  color: var(--ritarinn-accent);
+  font-weight: 550;
+}
+
+.ritarinn-chip:focus-within {
+  outline: 2px solid var(--ritarinn-accent);
+  outline-offset: 2px;
+}
+
+.ritarinn-options[disabled] .ritarinn-chip {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ritarinn-checkbox {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ritarinn-checkbox small {
+  display: block;
+  color: var(--ritarinn-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.ritarinn-result {
+  margin-top: 1.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--ritarinn-border);
+  border-radius: var(--ritarinn-radius);
+  background: var(--ritarinn-surface);
+}
+
+.ritarinn-result__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.ritarinn-result__header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.ritarinn-result__meta,
+.ritarinn-result__provenance,
+.ritarinn-result__note,
+.ritarinn-result__hint {
+  color: var(--ritarinn-muted);
+  font-size: 0.78rem;
+}
+
+.ritarinn-result__text {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.ritarinn-result__warning {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ritarinn-warning) 14%, var(--ritarinn-surface));
+  color: var(--ritarinn-warning);
+  font-size: 0.82rem;
+}
+
+.ritarinn-result__issues {
+  margin: 0.75rem 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--ritarinn-border);
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+
+.ritarinn-result__issues p {
+  margin: 0 0 0.4rem;
+}
+
+.ritarinn-result__issues ul {
+  margin: 0 0 0.5rem;
+  padding-left: 1.1rem;
+  line-height: 1.6;
+}
+
+.ritarinn-result__issue-original {
+  text-decoration: line-through;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-result__issue-replacement {
+  font-weight: 600;
+}
+
+.ritarinn-result__issue-title {
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-result__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ritarinn-compare {
+  margin-top: 1.25rem;
+}
+
+.ritarinn-compare__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.ritarinn-compare__header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.ritarinn-compare__ratio {
+  color: var(--ritarinn-muted);
+  font-size: 0.78rem;
+}
+
+.ritarinn-compare__columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.ritarinn-compare__columns h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-compare__text,
+.ritarinn-diffview {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--ritarinn-border);
+  border-radius: var(--ritarinn-radius);
+  background: var(--ritarinn-surface);
+  font-size: 0.9rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.ritarinn-diffview__removed {
+  background: color-mix(in srgb, var(--ritarinn-spelling) 16%, transparent);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.ritarinn-diffview__added {
+  background: color-mix(in srgb, var(--ritarinn-local) 18%, transparent);
+}
+
+@media (max-width: 800px) {
+  .ritarinn-compare__columns {
+    grid-template-columns: 1fr;
+  }
+}

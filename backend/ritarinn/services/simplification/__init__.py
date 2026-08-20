@@ -1,5 +1,8 @@
-"""Á mannamáli — plain-language rewriting (Milestone 2).
+"""Á mannamáli — plain-language rewriting with a local model.
 
-Deliberately empty in v0.1, for the same reason as summarization: it needs a
-local LLM, and no hosted fallback will be added. See ``docs/roadmap.md``.
+See ``service.py``. The author's text is never replaced automatically.
 """
+
+from ritarinn.services.simplification.service import SimplificationService, SimplifyOptions
+
+__all__ = ["SimplificationService", "SimplifyOptions"]

@@ -84,6 +84,31 @@ export interface ModelsStatusResponse {
   generationReady: boolean;
 }
 
+// -- generative features ------------------------------------------------------
+//
+// Option values are ASCII slugs so the API stays language-neutral; the
+// Icelandic labels live in the i18n catalogue.
+
+export type SummaryLength = "very_short" | "short" | "medium" | "detailed";
+export type SummaryForm = "prose" | "bullets";
+export type Audience = "general" | "experts" | "managers" | "customers" | "youth";
+export type SimplifyStyle = "plain" | "concise" | "formal" | "neutral" | "friendly";
+
+export interface GenerationResponse {
+  text: string;
+  /** The local model that produced this, shown so the user knows what wrote it. */
+  model: string;
+  /** How the document was divided, and whether a combine pass was needed. */
+  chunks: number;
+  passes: number;
+  elapsedMs: number;
+  /** Advisory issues found in the generated text. Never applied automatically. */
+  issues: WritingIssue[];
+  offsetUnit: "utf16";
+  /** True when the model hit its output cap; the text may end mid-sentence. */
+  truncated: boolean;
+}
+
 export interface PrivacyStatusResponse {
   localOnly: boolean;
   bindHost: string;

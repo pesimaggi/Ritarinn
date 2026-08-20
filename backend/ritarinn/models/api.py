@@ -137,6 +137,73 @@ class PrivacyStatusResponse(RitarinnModel):
     summary: str
 
 
+# -- textagerð ----------------------------------------------------------------
+
+#: Option vocabularies for the generative features. ASCII slugs rather than
+#: Icelandic words, so the API stays language-neutral and the Icelandic labels
+#: live with the rest of the UI strings in ``frontend/src/i18n``.
+#:
+#: Literals rather than free text because these values index the prompt tables
+#: in ``ritarinn.services.generation.prompts``. An unrecognised value is
+#: rejected here, at the boundary, instead of reaching a prompt builder that
+#: has no guidance for it.
+SummaryLength = Literal["very_short", "short", "medium", "detailed"]
+SummaryForm = Literal["prose", "bullets"]
+Audience = Literal["general", "experts", "managers", "customers", "youth"]
+SimplifyStyle = Literal["plain", "concise", "formal", "neutral", "friendly"]
+
+
+class GenerationRequestBase(RitarinnModel):
+    """What both generative endpoints take."""
+
+    text: str
+    #: Run the generated text back through GreynirCorrect and report what it
+    #: finds. Advisory only: a summary is a claim about meaning, and a grammar
+    #: rule is not grounds to alter it, so the text is never changed on the
+    #: strength of these issues.
+    proofread: bool = True
+
+
+class SummarizeRequest(GenerationRequestBase):
+    """Samantekt. Both options default, so a client may send only ``text``."""
+
+    length: SummaryLength = "medium"
+    form: SummaryForm = "prose"
+
+
+class SimplifyRequest(GenerationRequestBase):
+    """Á mannamáli. Both options default, so a client may send only ``text``."""
+
+    audience: Audience = "general"
+    style: SimplifyStyle = "plain"
+
+
+class GenerationResponse(RitarinnModel):
+    """A proposal produced by a local model — never an applied edit.
+
+    The provenance fields are not decoration. A reader of a summary assembled
+    from a long document should be able to see that it was built from parts,
+    and which model wrote it.
+    """
+
+    text: str
+    #: The local model that produced this, so the user knows what wrote it.
+    model: str
+    #: How many parts the source was divided into.
+    chunks: int
+    #: 1 for a single pass; 2 when chunk summaries were combined.
+    passes: int
+    elapsed_ms: float
+    #: Issues found in the *generated* text, when proofreading was requested.
+    issues: list[WritingIssue] = Field(default_factory=list)
+    #: Offsets in ``issues`` index the generated text, counted the same way as
+    #: everywhere else in this contract.
+    offset_unit: Literal["utf16"] = "utf16"
+    #: True when the model stopped at its output cap, so the text may end
+    #: mid-sentence. Reported rather than passed off as a finished answer.
+    truncated: bool = False
+
+
 # -- features that are deliberately not in this version -----------------------
 
 
