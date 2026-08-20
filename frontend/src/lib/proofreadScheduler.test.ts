@@ -52,7 +52,7 @@ describe("ProofreadScheduler", () => {
   afterEach(() => vi.useRealTimers());
 
   it("waits for the debounce interval before running", async () => {
-    const run = vi.fn(async () => response("a"));
+    const run = vi.fn(async (_text: string, _signal: AbortSignal) => response("a"));
     const scheduler = new ProofreadScheduler({ debounceMs: 800, run, onChange: () => {} });
 
     scheduler.schedule("Þinngið");
@@ -66,7 +66,7 @@ describe("ProofreadScheduler", () => {
   });
 
   it("collapses rapid typing into a single run", async () => {
-    const run = vi.fn(async () => response("a"));
+    const run = vi.fn(async (_text: string, _signal: AbortSignal) => response("a"));
     const scheduler = new ProofreadScheduler({ debounceMs: 800, run, onChange: () => {} });
 
     for (const text of ["Þ", "Þi", "Þin", "Þinn"]) {
@@ -121,7 +121,7 @@ describe("ProofreadScheduler", () => {
   });
 
   it("publishes an empty result for empty text instead of leaving stale issues", async () => {
-    const run = vi.fn(async () => response("a"));
+    const run = vi.fn(async (_text: string, _signal: AbortSignal) => response("a"));
     const seen: (string | null)[] = [];
     const scheduler = new ProofreadScheduler({
       debounceMs: 0,
@@ -137,7 +137,7 @@ describe("ProofreadScheduler", () => {
   });
 
   it("reports an error without discarding the previous analysed text", async () => {
-    const run = vi.fn(async () => {
+    const run = vi.fn(async (_text: string, _signal: AbortSignal): Promise<ProofreadResponse> => {
       throw new Error("boom");
     });
     let last: string | null = null;
@@ -179,7 +179,7 @@ describe("ProofreadScheduler", () => {
   });
 
   it("stops pending work when disposed", async () => {
-    const run = vi.fn(async () => response("a"));
+    const run = vi.fn(async (_text: string, _signal: AbortSignal) => response("a"));
     const scheduler = new ProofreadScheduler({ debounceMs: 800, run, onChange: () => {} });
 
     scheduler.schedule("Þinngið");

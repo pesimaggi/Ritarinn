@@ -28,7 +28,7 @@ def proofread(
 ) -> ProofreadResponse:
     if len(payload.text) > state.settings.max_text_chars:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=413,  # Content Too Large
             detail=(
                 f"Textinn er of langur ({len(payload.text)} stafir). "
                 f"Hámark er {state.settings.max_text_chars} stafir."

@@ -32,7 +32,10 @@ function contentSecurityPolicy(isDev: boolean): string {
       : `connect-src 'self' ${BACKEND} http://localhost:8756`,
     "base-uri 'none'",
     "form-action 'none'",
-    "frame-ancestors 'none'",
+    // 'frame-ancestors' is deliberately absent: browsers ignore it when it
+    // arrives in a <meta> element and log a console warning. A server hosting
+    // a production build should send it as an HTTP header instead — the
+    // backend already does so for its own responses.
   ];
   return directives.join("; ");
 }

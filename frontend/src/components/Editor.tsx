@@ -9,11 +9,12 @@
  */
 
 import { useEffect, useRef } from "react";
-import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
+import { history } from "@codemirror/commands";
 import { EditorState, type Extension } from "@codemirror/state";
-import { EditorView, drawSelection, keymap, placeholder } from "@codemirror/view";
+import { EditorView, drawSelection, placeholder } from "@codemirror/view";
 
 import { is } from "../i18n/is";
+import { ritarinnKeymap } from "../lib/editorKeymap";
 import {
   issueAt,
   issueDecorations,
@@ -74,20 +75,7 @@ export function Editor({
       issueField,
       selectedIssueField,
       issueDecorations,
-      keymap.of([
-        {
-          key: "Mod-Enter",
-          run: () => {
-            handlers.current.onProofreadShortcut();
-            return true;
-          },
-        },
-        { key: "Mod-z", run: undo, preventDefault: true },
-        { key: "Mod-Shift-z", run: redo, preventDefault: true },
-        { key: "Mod-y", run: redo, preventDefault: true },
-        ...historyKeymap,
-        ...defaultKeymap,
-      ]),
+      ritarinnKeymap({ onProofread: () => handlers.current.onProofreadShortcut() }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           handlers.current.onTextChange(update.state.doc.toString());
