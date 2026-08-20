@@ -16,8 +16,10 @@ frontend/dist/
 frontend/.vite/
 *.tsbuildinfo
 
-# Local models and caches (never commit model weights)
-models/
+# Local model weights and caches (never commit model weights).
+# Rooted deliberately: an unrooted "models/" also matches
+# backend/ritarinn/models/, the Pydantic schema package — which is source.
+/models/
 *.gguf
 *.safetensors
 *.bin
