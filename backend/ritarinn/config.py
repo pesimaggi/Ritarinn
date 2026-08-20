@@ -97,14 +97,29 @@ class Settings:
     # has to say so, in writing, rather than discovering it by accident.
     allow_non_loopback_bind: bool = False
 
-    # Local inference runtime. Detection only in v0.1 — no text is sent.
+    # Local inference runtime.
     ollama_enabled: bool = True
     ollama_url: str = DEFAULT_OLLAMA_URL
+    #: Timeout for status/detection calls, which must stay snappy.
     ollama_timeout_seconds: float = 2.0
 
     # Name of the local model to use for generative features. Empty means the
     # user has not chosen one, and generative features stay switched off.
     llm_model: str = ""
+
+    #: Timeout for a single generation. Generous, because a local model on a
+    #: CPU can legitimately take minutes on a long chunk — a short timeout would
+    #: make Ritarinn look broken on exactly the hardware it is meant to support.
+    llm_timeout_seconds: float = 300.0
+
+    #: Low by default: these features must preserve meaning, not write prose.
+    llm_temperature: float = 0.2
+
+    #: Roughly how much source text to put in one prompt, in characters.
+    #: Chosen in characters rather than tokens because tokenisation differs per
+    #: model, and Icelandic tokenises worse than English in most vocabularies —
+    #: a conservative character budget is more portable than a token estimate.
+    llm_context_chars: int = 6000
 
     # Optional neural correction engine (Milestone 4). Off until explicitly
     # installed and enabled; it must never gate first startup.
@@ -185,6 +200,9 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         ollama_url=env.get("RITARINN_OLLAMA_URL", DEFAULT_OLLAMA_URL),
         ollama_timeout_seconds=_env_float(env, "RITARINN_OLLAMA_TIMEOUT", 2.0),
         llm_model=env.get("RITARINN_LLM_MODEL", ""),
+        llm_timeout_seconds=_env_float(env, "RITARINN_LLM_TIMEOUT", 300.0),
+        llm_temperature=_env_float(env, "RITARINN_LLM_TEMPERATURE", 0.2),
+        llm_context_chars=_env_int(env, "RITARINN_LLM_CONTEXT_CHARS", 6000),
         byt5_enabled=_env_bool(env, "RITARINN_BYT5_ENABLED", False),
         byt5_model_path=env.get("RITARINN_BYT5_MODEL_PATH", ""),
         log_level=env.get("RITARINN_LOG_LEVEL", "INFO"),

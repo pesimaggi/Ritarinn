@@ -152,18 +152,26 @@ def _app_for(settings: Settings):
     return create_app(settings)
 
 
-# -- generative features are off, not redirected ------------------------------
+# -- generative features never fall back to a hosted service ------------------
 
 
 @pytest.mark.parametrize("path", ["/api/summarize", "/api/simplify"])
-def test_generative_endpoints_report_unavailable(client: TestClient, path: str) -> None:
-    response = client.post(path)
-    assert response.status_code == 501
-    body = response.json()
-    assert "skýjaþjónustu" in body["detail"], "must state that no cloud fallback is used"
+def test_generative_endpoints_fail_rather_than_reach_for_the_cloud(
+    client: TestClient, path: str
+) -> None:
+    """With no local model configured, generation stops.
+
+    The failure mode that must never appear is a summary produced anyway — by
+    a hosted model. There is no code path that could do it, and this asserts
+    the observable consequence: the request fails, and the message tells the
+    user to choose a *local* model.
+    """
+    response = client.post(path, json={"text": "Þetta er texti sem á að vinna."})
+    assert response.status_code == 503
+    assert "líkan" in response.json()["detail"]
 
 
-def test_generation_is_not_reported_ready(client: TestClient) -> None:
+def test_generation_is_not_reported_ready_without_a_model(client: TestClient) -> None:
     assert client.get("/api/models/status").json()["generationReady"] is False
 
 

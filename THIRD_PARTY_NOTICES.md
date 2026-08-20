@@ -133,7 +133,7 @@ Byggt á íslenskri máltækni**, not only in this file.
 | **License** | MIT (verify against the version you install) |
 | **Redistributed?** | No — installed separately by the user, as a localhost service |
 | **Attribution requirement** | MIT notice if redistributed |
-| **Notes** | A *runtime*, not a model. Ritarinn v0.1 only asks a locally running Ollama which models are installed; it sends no text. Ollama's hosted services are not used and are not reachable from Ritarinn's configuration, which rejects any non-loopback endpoint. |
+| **Notes** | A *runtime*, not a model. Ritarinn asks a locally running Ollama which models are installed, and sends prompts to it for Samantekt and Á mannamáli — over loopback only. Ollama's hosted services are not used and are not reachable from Ritarinn's configuration, which rejects any non-loopback endpoint with no override. |
 
 ### Local language models
 
@@ -145,6 +145,12 @@ A model's origin does not imply a network dependency: weights that are on disk
 are executed locally by the runtime. A locally downloaded Qwen model, for
 example, runs without contacting Alibaba, and Ritarinn provides no model with
 network, shell or filesystem access.
+
+**Models used during development.** `gemma3:4b` and `qwen3:4b` were pulled
+through Ollama to verify the generation pipeline end to end. They are *not*
+recommendations — both were chosen for download size and speed on a CPU, and
+their Icelandic is visibly weak. They are not bundled, not referenced in code,
+and not defaulted to anywhere.
 
 Once a default model is recommended (Milestone 3), this section must record for
 each candidate: name, origin, licence, download size, memory requirement, and
