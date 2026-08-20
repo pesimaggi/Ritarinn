@@ -4,31 +4,34 @@ Ollama is a *runtime*: it loads model weights that are already on disk and
 serves them over a loopback HTTP API. It is not itself a language model, and
 Ritarinn never uses Ollama's hosted services.
 
-What this module does in v0.1 is ask a locally running Ollama which models the
-user has, so the status panel can tell the truth about what is installed. No
-user text is sent. Text generation (``generate``) is Milestone 2 and raises
-until then, rather than being half-wired.
+This module does two things: it asks a locally running Ollama which models the
+user has, so the status panel can tell the truth about what is installed; and
+it runs generation against a model the user has chosen.
 
 Every request is guarded by a loopback check on the configured URL, so a
 mistyped or tampered-with configuration fails closed instead of quietly posting
-documents to a remote host.
+documents to a remote host. That check is the one place where user text could
+leave the machine, so it is enforced twice — once at configuration load, and
+again on each request.
 """
 
 from __future__ import annotations
 
 import logging
+import re
+import time
 from typing import Optional
 
 import httpx
 
 from ritarinn.config import Settings, is_loopback_host
 from ritarinn.services.llm.base import (
-    FeatureNotAvailableError,
     GenerationRequest,
     GenerationResult,
     LocalLLMProvider,
     ModelInfo,
     ProviderStatus,
+    ProviderUnavailableError,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,8 +44,11 @@ NOT_FOUND_DETAIL = (
     "Ollama þarf aðeins fyrir samantekt og einföldun texta."
 )
 NO_MODEL_DETAIL = "Ekkert líkan valið."
-GENERATION_NOT_IN_V01 = (
-    "Textagerð með staðbundnu líkani er ekki komin í þessa útgáfu (áfangi 2)."
+UNREACHABLE_DETAIL = (
+    "Náði ekki sambandi við Ollama á þessari tölvu. Athugaðu hvort Ollama sé í gangi."
+)
+MODEL_MISSING_DETAIL = (
+    "Líkanið {model!r} fannst ekki í Ollama. Sæktu það með: ollama pull {model}"
 )
 
 
@@ -61,31 +67,45 @@ class OllamaProvider(LocalLLMProvider):
         host = httpx.URL(self._settings.ollama_url).host
         return is_loopback_host(host)
 
+    def _require_local_endpoint(self) -> str:
+        """Return the base URL, refusing anything that is not on loopback.
+
+        ``Settings.validate()`` already rejects a non-loopback endpoint at load
+        time. This is a second, independent gate, because generation is the one
+        code path that carries the user's document — and a guarantee this
+        central is worth checking twice.
+        """
+        if not self._endpoint_is_local():
+            raise ProviderUnavailableError(
+                PROVIDER_NAME,
+                "Neita að senda texta á vistfang sem er ekki staðbundið.",
+            )
+        return self._settings.ollama_url.rstrip("/")
+
     def _get(self, path: str) -> Optional[dict]:
         """GET a JSON document from the local Ollama, or None if unreachable."""
-        if not self._endpoint_is_local():
-            # Should be unreachable: Settings.validate() rejects this at load
-            # time. Kept as a second gate because this is the one code path that
-            # could send data off the machine.
+        try:
+            url = self._require_local_endpoint() + path
+        except ProviderUnavailableError:
             logger.error("Refusing to contact non-loopback Ollama endpoint")
             return None
-        url = self._settings.ollama_url.rstrip("/") + path
         try:
             if self._client is not None:
                 response = self._client.get(url, timeout=self._settings.ollama_timeout_seconds)
             else:
-                with httpx.Client(
-                    timeout=self._settings.ollama_timeout_seconds,
-                    # Never route local traffic through a proxy; a proxy would
-                    # take the request off the loopback interface.
-                    trust_env=False,
-                ) as client:
+                with self._new_client(self._settings.ollama_timeout_seconds) as client:
                     response = client.get(url)
             response.raise_for_status()
             return response.json()
         except Exception as exc:
             logger.debug("Ollama not reachable at %s (%s)", url, type(exc).__name__)
             return None
+
+    @staticmethod
+    def _new_client(timeout: float) -> httpx.Client:
+        # trust_env=False so an ambient HTTP_PROXY cannot pull loopback traffic
+        # off the loopback interface.
+        return httpx.Client(timeout=timeout, trust_env=False)
 
     # -- public ---------------------------------------------------------------
 
@@ -127,7 +147,119 @@ class OllamaProvider(LocalLLMProvider):
         )
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
-        raise FeatureNotAvailableError(GENERATION_NOT_IN_V01)
+        """Run one generation against a locally held model.
+
+        Uses Ollama's chat endpoint with streaming disabled: Ritarinn shows a
+        result only once it is complete and reviewable, so there is nothing to
+        do with partial output yet. Streaming would improve the wait on slow
+        hardware and is noted as future work in docs/roadmap.md.
+        """
+        if not self._settings.ollama_enabled:
+            raise ProviderUnavailableError(PROVIDER_NAME, DISABLED_DETAIL)
+        if not request.model:
+            raise ProviderUnavailableError(PROVIDER_NAME, NO_MODEL_DETAIL)
+
+        url = self._require_local_endpoint() + "/api/chat"
+        payload = {
+            "model": request.model,
+            "messages": [
+                {"role": "system", "content": request.system_prompt},
+                {"role": "user", "content": request.user_prompt},
+            ],
+            "stream": False,
+            "options": {"temperature": request.temperature},
+            # Reasoning models otherwise emit a chain of thought before the
+            # answer, which is not what the user asked to put in their document.
+            # Runtimes that do not know this flag ignore it, and the response
+            # cleaning below catches what slips through.
+            "think": False,
+        }
+        if request.max_tokens is not None:
+            # An output cap is not optional for local generation: an unbounded
+            # reasoning model on a CPU will happily run past any timeout, and
+            # the user sees a hang rather than a result.
+            payload["options"]["num_predict"] = request.max_tokens
+
+        started = time.perf_counter()
+        try:
+            if self._client is not None:
+                response = self._client.post(
+                    url, json=payload, timeout=self._settings.llm_timeout_seconds
+                )
+            else:
+                with self._new_client(self._settings.llm_timeout_seconds) as client:
+                    response = client.post(url, json=payload)
+        except httpx.TimeoutException as exc:
+            raise ProviderUnavailableError(
+                PROVIDER_NAME,
+                "Líkanið svaraði ekki í tæka tíð. Prófaðu styttri texta eða minna líkan.",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailableError(PROVIDER_NAME, UNREACHABLE_DETAIL) from exc
+
+        if response.status_code == 404:
+            raise ProviderUnavailableError(
+                PROVIDER_NAME, MODEL_MISSING_DETAIL.format(model=request.model)
+            )
+        if response.status_code >= 400:
+            # Ollama's error body is developer-facing; it is logged, not shown.
+            logger.warning("Ollama returned HTTP %d for a generation request", response.status_code)
+            raise ProviderUnavailableError(
+                PROVIDER_NAME, "Staðbundna líkanið skilaði villu. Sjá annál bakendans."
+            )
+
+        body = response.json()
+        message = body.get("message") or {}
+        text = clean_model_output(str(message.get("content", "")))
+        if not text:
+            raise ProviderUnavailableError(
+                PROVIDER_NAME, "Staðbundna líkanið skilaði engum texta."
+            )
+
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        # Counts and timings only; never the prompt or the output.
+        logger.info(
+            "generation completed | model=%s | chars=%d | %.0f ms",
+            request.model,
+            len(text),
+            elapsed_ms,
+        )
+        return GenerationResult(
+            text=text,
+            model=request.model,
+            elapsed_ms=elapsed_ms,
+            # Ollama reports "length" when it stopped at num_predict.
+            truncated=body.get("done_reason") == "length",
+        )
+
+
+#: Chain-of-thought wrappers emitted by reasoning models that ignore `think`.
+_THINK_BLOCK = re.compile(r"<(think|thinking)>.*?</\1>", re.DOTALL | re.IGNORECASE)
+#: An unterminated block, which happens when generation is cut off by the cap.
+_UNCLOSED_THINK = re.compile(r"<(think|thinking)>.*\Z", re.DOTALL | re.IGNORECASE)
+#: A whole-response markdown fence, e.g. ```text ... ```
+_FENCED = re.compile(r"\A```[a-zA-Z]*\n(.*?)\n?```\Z", re.DOTALL)
+
+
+def clean_model_output(text: str) -> str:
+    """Strip artefacts local models add around the text the user asked for.
+
+    Local models are much less consistent than hosted ones about returning bare
+    prose. Two artefacts show up often enough to handle here rather than in
+    every prompt: chain-of-thought blocks from reasoning models, and a markdown
+    fence wrapped around the whole answer.
+
+    Only whole-response wrappers are removed. Markdown *inside* the text is left
+    alone, because the user may legitimately have asked for bullet points.
+    """
+    cleaned = _THINK_BLOCK.sub("", text)
+    cleaned = _UNCLOSED_THINK.sub("", cleaned)
+    cleaned = cleaned.strip()
+
+    fenced = _FENCED.match(cleaned)
+    if fenced:
+        cleaned = fenced.group(1).strip()
+    return cleaned
 
 
 def _parse_model(entry: dict) -> ModelInfo:

@@ -78,6 +78,10 @@ class GenerationResult:
     text: str
     model: str
     elapsed_ms: float
+    #: True when generation stopped at its output cap rather than finishing.
+    #: Worth surfacing: the result may end mid-sentence, and the user should
+    #: know that before deciding whether to accept it.
+    truncated: bool = False
 
 
 class ProviderUnavailableError(RuntimeError):

@@ -67,7 +67,7 @@ def models_status(state: AppState = Depends(get_state)) -> ModelsStatusResponse:
         correction_engines=engines,
         llm_providers=providers,
         proofreading_ready=any(e.available for e in engines),
-        # v0.1 ships no generation feature, so this stays False even when a
-        # model is present. It becomes meaningful in Milestone 2.
-        generation_ready=False,
+        # True only when a runtime is reachable *and* a model has been chosen.
+        # A reachable Ollama with no model selected cannot generate anything.
+        generation_ready=provider.can_generate,
     )
