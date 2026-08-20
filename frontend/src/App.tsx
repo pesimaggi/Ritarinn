@@ -10,10 +10,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 
 import { Editor } from "./components/Editor";
-import { FeaturePlaceholder } from "./components/FeaturePlaceholder";
 import { IssuePanel } from "./components/IssuePanel";
+import { PlainLanguageTab } from "./components/PlainLanguageTab";
 import { PrivacyIndicator } from "./components/PrivacyIndicator";
 import { SetupStatus } from "./components/SetupStatus";
+import { SummaryTab } from "./components/SummaryTab";
 import { is } from "./i18n/is";
 import { ApiError, getModelsStatus, getPrivacyStatus, proofread } from "./lib/api";
 import { acceptIssue, ignoreIssue, revealIssue } from "./lib/issueDecorations";
@@ -154,6 +155,30 @@ export function App() {
     scheduler.schedule(view.state.doc.toString());
   }, [scheduler, visibleIssues]);
 
+  /**
+   * Put generated text into the editor, replacing what is there.
+   *
+   * Dispatched as one ordinary transaction, so Ctrl+Z undoes it like any other
+   * edit — which is what makes accepting a rewrite safe to try. Nothing calls
+   * this except an explicit click on Samþykkja.
+   */
+  const replaceDocument = useCallback(
+    (replacement: string) => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: replacement },
+        userEvent: "input.generated",
+      });
+      setText(replacement);
+      setIssues([]);
+      setSelectedId(null);
+      setTab("proofread");
+      scheduler.schedule(replacement);
+    },
+    [scheduler],
+  );
+
   const handleRestoreIgnored = useCallback(() => {
     setIgnoredIds(new Set());
     // Re-running is the only way to get the underlines back: the editor
@@ -237,17 +262,11 @@ export function App() {
         </div>
 
         {tab === "summary" && (
-          <FeaturePlaceholder
-            title={is.tabs.summary}
-            description={is.features.summaryUnavailable}
-          />
+          <SummaryTab text={text} models={models} onAccept={replaceDocument} />
         )}
 
         {tab === "plainLanguage" && (
-          <FeaturePlaceholder
-            title={is.tabs.plainLanguage}
-            description={is.features.plainLanguageUnavailable}
-          />
+          <PlainLanguageTab text={text} models={models} onAccept={replaceDocument} />
         )}
 
         {tab === "settings" && (

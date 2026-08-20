@@ -6,9 +6,13 @@
 *A local-first, open-source Icelandic writing assistant. Your text is
 proofread on your own computer and is never sent to a cloud service.*
 
-> **Version 0.1 — Milestone 1.** Proofreading (Yfirlestur) works. Summarization
-> and plain-language rewriting need a local language model and are not yet
-> implemented; the application says so rather than quietly using a hosted one.
+> **Version 0.2 — Milestone 2.** Proofreading (Yfirlestur), summarization
+> (Samantekt) and plain-language rewriting (Á mannamáli) all work, entirely on
+> your own machine. The generative features need a local model through Ollama;
+> without one the application says so rather than quietly using a hosted one.
+>
+> **No default model is recommended yet.** Choosing one requires evaluating
+> Icelandic quality properly — that is Milestone 3.
 >
 > "Ritarinn" is a temporary working name.
 
@@ -16,15 +20,42 @@ proofread on your own computer and is never sent to a cloud service.*
 
 ## Hvað þetta gerir / What it does
 
+### Yfirlestur — proofreading
+
 Skrifaðu eða límdu íslenskan texta, smelltu á **Yfirlesa**, og fáðu einstakar
 ábendingar um stafsetningu, málfræði, greinarmerki og málfar. Hver ábending er
-skoðuð sérstaklega — þú **Samþykkir** eða **Hunsar**. Ritarinn breytir aldrei
-textanum þínum af sjálfsdáðum.
+skoðuð sérstaklega — þú **Samþykkir** eða **Hunsar**.
 
 Write or paste Icelandic text, press **Yfirlesa**, and get individual
 suggestions covering spelling, grammar, punctuation and style. Each one is
-reviewed on its own — you **accept** or **ignore** it. Ritarinn never silently
-rewrites your document.
+reviewed on its own — you accept or ignore it.
+
+### Samantekt — summarization
+
+Draga saman texta með staðbundnu mállíkani. Veldu **Lengd** (Mjög stutt · Stutt
+· Miðlungs · Ítarleg) og **Form** (Samfelldur texti · Punktar). Langur texti er
+brotinn upp á málsgreina- og setningamörkum og aldrei í miðri setningu.
+
+### Á mannamáli — plain language
+
+Umrita texta fyrir tiltekinn **Markhóp** (Almenningur · Sérfræðingar ·
+Stjórnendur · Viðskiptavinir · Ungmenni) í völdum **Stíl** (Einfalt mál ·
+Hnitmiðað · Formlegt · Hlutlaust · Vinalegt). Sérstaklega ætlað fyrir
+stofnanamál, lagatexta og fræðilegan texta.
+
+**Ritarinn breytir aldrei textanum þínum af sjálfsdáðum.** Allur texti frá
+mállíkani er sýndur til hliðar við upprunalega textann, með orðamun þar sem það
+á við, og þú velur **Samþykkja**, **Afrita** eða **Hafna**. Samþykkt breyting er
+venjuleg breyting sem má afturkalla.
+
+*Generated text is never applied automatically. It is shown beside your original
+— with a word-level diff for rewrites — and you accept, copy or discard it.
+Accepting is an ordinary undoable edit.*
+
+Prompts instruct the model to preserve numbers, names, dates, legal citations
+and stated uncertainty, and to invent nothing. Generated Icelandic can
+optionally be run back through GreynirCorrect, which reports problems in the
+model's output **without altering it**.
 
 ---
 
@@ -59,6 +90,28 @@ Opnaðu svo / then open:
 that GreynirCorrect actually corrects Icelandic, and reports whether Ollama is
 present. **It downloads no language model.** Nothing multi-gigabyte is fetched
 on your behalf.
+
+### Samantekt og Á mannamáli / the generative features
+
+These need a local model. Ritarinn does not download one for you.
+
+```bash
+# Install Ollama (https://ollama.com), then choose a model yourself:
+ollama pull <model>
+
+# Point Ritarinn at it:
+RITARINN_LLM_MODEL=<model> ./start
+```
+
+Ollama is a *runtime*, not a model, and Ritarinn only ever talks to it on
+`127.0.0.1`. Ollama's hosted services are not used and cannot be configured.
+
+**Which model?** Ritarinn deliberately does not say yet. Icelandic quality
+varies enormously between model families, and small models are noticeably weak
+at it — during development `gemma3:4b` wrote *taksins* for *talsins* on a
+two-sentence notice. Picking a recommended default is Milestone 3, and it should
+be decided by Icelandic evaluation rather than by generic benchmarks. Expect to
+need a larger model than you would for English.
 
 <details>
 <summary>Manual installation</summary>
@@ -142,8 +195,8 @@ Full details, licences and open questions:
 | `POST /api/proofread` | Proofread text, return individual issues |
 | `GET /api/models/status` | What is installed and ready |
 | `GET /api/privacy/status` | Computed local-only facts |
-| `POST /api/summarize` | 501 — needs a local LLM (Milestone 2) |
-| `POST /api/simplify` | 501 — needs a local LLM (Milestone 2) |
+| `POST /api/summarize` | Summarize with the local model |
+| `POST /api/simplify` | Rewrite in plain language with the local model |
 
 ```bash
 curl -X POST http://127.0.0.1:8756/api/proofread \
@@ -191,8 +244,8 @@ fabricates no confidence scores. See [`docs/error-codes.md`](docs/error-codes.md
 ## Þróun / Development
 
 ```bash
-.venv/bin/python -m pytest tests/backend     # 146 backend tests
-cd frontend && npm test                      # 47 frontend tests
+.venv/bin/python -m pytest tests/backend     # 221 backend tests
+cd frontend && npm test                      # 89 frontend tests
 cd frontend && npm run build                 # typecheck + production build
 
 python scripts/snapshot_corpus.py            # refresh corpus/observed.json
@@ -212,9 +265,12 @@ All optional; the defaults are the local-first ones.
 | `RITARINN_PORT` | `8756` | |
 | `RITARINN_ALLOWED_ORIGINS` | loopback:5173 | Comma-separated; wildcards rejected |
 | `RITARINN_ALLOW_NON_LOOPBACK` | `0` | Deliberate opt-in to LAN exposure |
-| `RITARINN_OLLAMA_ENABLED` | `1` | Detection only in v0.1 |
+| `RITARINN_OLLAMA_ENABLED` | `1` | Local inference runtime |
 | `RITARINN_OLLAMA_URL` | `http://127.0.0.1:11434` | **Must be loopback — no override** |
 | `RITARINN_LLM_MODEL` | *(unset)* | No model is chosen for you |
+| `RITARINN_LLM_TIMEOUT` | `300` | Seconds; a local model on a CPU is slow |
+| `RITARINN_LLM_TEMPERATURE` | `0.2` | Low: these features preserve meaning |
+| `RITARINN_LLM_CONTEXT_CHARS` | `6000` | Source characters per model call |
 | `RITARINN_LOG_LEVEL` | `INFO` | Logs never contain document text |
 
 ### Documentation

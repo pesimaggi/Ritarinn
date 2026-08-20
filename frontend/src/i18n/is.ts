@@ -29,10 +29,6 @@ export const is = {
     ignore: "Hunsa",
     copy: "Afrita",
     copied: "Afritað",
-    undo: "Afturkalla",
-    clear: "Hreinsa texta",
-    deleteLocalData: "Eyða staðbundnum gögnum",
-    showIgnored: "Sýna hunsaðar ábendingar",
     restore: "Sýna aftur",
   },
 
@@ -100,19 +96,88 @@ export const is = {
     modelsAvailable: (n: number) => `${n} ${n === 1 ? "líkan" : "líkön"} tiltæk`,
   },
 
-  features: {
-    summaryUnavailable:
-      "Samantekt krefst staðbundins mállíkans og er ekki komin í þessa útgáfu.",
-    plainLanguageUnavailable:
-      "Einföldun texta krefst staðbundins mállíkans og er ekki komin í þessa útgáfu.",
-    neverCloud: "Ritarinn sendir aldrei texta í skýjaþjónustu í staðinn.",
-    plannedFor: "Væntanlegt í útgáfu 0.2.",
+  generation: {
+    summaryHeading: "Samantekt",
+    plainLanguageHeading: "Á mannamáli",
+
+    lengthLabel: "Lengd",
+    length: {
+      very_short: "Mjög stutt",
+      short: "Stutt",
+      medium: "Miðlungs",
+      detailed: "Ítarleg",
+    },
+
+    formLabel: "Form",
+    form: {
+      prose: "Samfelldur texti",
+      bullets: "Punktar",
+    },
+
+    audienceLabel: "Markhópur",
+    audience: {
+      general: "Almenningur",
+      experts: "Sérfræðingar",
+      managers: "Stjórnendur",
+      customers: "Viðskiptavinir",
+      youth: "Ungmenni",
+    },
+
+    styleLabel: "Stíll",
+    style: {
+      plain: "Einfalt mál",
+      concise: "Hnitmiðað",
+      formal: "Formlegt",
+      neutral: "Hlutlaust",
+      friendly: "Vinalegt",
+    },
+
+    proofreadOutput: "Lesa yfir útkomuna",
+    proofreadOutputHint:
+      "Ábendingar úr yfirlestri eru sýndar en aldrei notaðar sjálfkrafa á textann.",
+
+    run: "Búa til",
+    running: "Vinn…",
+    cancel: "Hætta við",
+    rerun: "Búa til aftur",
+
+    resultHeading: "Tillaga",
+    comparisonHeading: "Samanburður",
+    showDiff: "Sýna breytingar",
+    showSideBySide: "Sýna hlið við hlið",
+
+    emptyText: "Skrifaðu eða límdu texta í Yfirlestur-flipann fyrst.",
+    noModel:
+      "Ekkert staðbundið líkan er valið. Samantekt og einföldun þurfa staðbundið mállíkan.",
+    noRuntime:
+      "Ollama fannst ekki á þessari tölvu. Samantekt og einföldun þurfa staðbundna keyrslu.",
+    setupHint: "Sjá Stillingar fyrir stöðu staðbundinna líkana.",
+
+    modelLabel: "Líkan",
+    chunksLabel: (chunks: number, passes: number) =>
+      chunks === 1
+        ? "Unnið í einni umferð"
+        : `Textanum var skipt í ${chunks} hluta og þeir sameinaðir í ${passes} umferðum`,
+    elapsedLabel: (ms: number) => `${(ms / 1000).toFixed(1)} sek`,
+    truncatedWarning:
+      "Líkanið náði hámarkslengd og útkoman gæti verið ófullgerð. Prófaðu styttri texta.",
+    issuesInOutput: (n: number) =>
+      n === 1
+        ? "1 ábending fannst í útkomunni"
+        : `${n} ábendingar fundust í útkomunni`,
+    noIssuesInOutput: "Engar ábendingar fundust í útkomunni.",
+    outputNotAltered: "Textanum hér að ofan hefur ekki verið breytt.",
+
+    acceptReplaces: "Skiptir út textanum í ritlinum. Hægt er að afturkalla.",
+    unchangedRatio: (percent: number) => `${percent}% textans er óbreytt`,
   },
 
   errors: {
     backendUnreachable:
       "Náði ekki sambandi við bakenda Ritarans. Er hann keyrandi á 127.0.0.1?",
     proofreadFailed: "Yfirlestur mistókst.",
+    generationFailed: "Textagerð mistókst.",
+    generationCancelled: "Hætt var við.",
     textTooLong: "Textinn er of langur fyrir yfirlestur.",
     retry: "Reyna aftur",
   },

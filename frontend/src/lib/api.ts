@@ -7,10 +7,15 @@
  */
 
 import type {
+  Audience,
+  GenerationResponse,
   HealthResponse,
   ModelsStatusResponse,
   PrivacyStatusResponse,
   ProofreadResponse,
+  SimplifyStyle,
+  SummaryForm,
+  SummaryLength,
 } from "./types";
 
 const API_BASE = "/api";
@@ -76,6 +81,52 @@ export function proofread(
       text,
       engines: options.engines ?? null,
       ignoreCodes: options.ignoreCodes ?? [],
+    }),
+    signal: options.signal,
+  });
+}
+
+export interface SummarizeOptions {
+  length: SummaryLength;
+  form: SummaryForm;
+  proofread: boolean;
+  signal?: AbortSignal;
+}
+
+export function summarize(
+  text: string,
+  options: SummarizeOptions,
+): Promise<GenerationResponse> {
+  return request<GenerationResponse>("/summarize", {
+    method: "POST",
+    body: JSON.stringify({
+      text,
+      length: options.length,
+      form: options.form,
+      proofread: options.proofread,
+    }),
+    signal: options.signal,
+  });
+}
+
+export interface SimplifyOptions {
+  audience: Audience;
+  style: SimplifyStyle;
+  proofread: boolean;
+  signal?: AbortSignal;
+}
+
+export function simplify(
+  text: string,
+  options: SimplifyOptions,
+): Promise<GenerationResponse> {
+  return request<GenerationResponse>("/simplify", {
+    method: "POST",
+    body: JSON.stringify({
+      text,
+      audience: options.audience,
+      style: options.style,
+      proofread: options.proofread,
     }),
     signal: options.signal,
   });

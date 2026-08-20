@@ -36,9 +36,9 @@ Local backend (127.0.0.1:8756)
    │
    ├── GreynirCorrect ──► GreynirEngine ──► BÍN (in-process, no network)
    │
-   ├── ByT5 neural correction        [not installed in v0.1]
+   ├── ByT5 neural correction        [not installed]
    │
-   └── Ollama (127.0.0.1:11434)      [detection only in v0.1]
+   └── Ollama (127.0.0.1:11434) ──► a model already on disk
 ```
 
 There is no path of the form *user text → internet → AI vendor*, and no
@@ -61,6 +61,9 @@ ritarinn/
 │   ├── lib/
 │   │   ├── issueDecorations.ts   editor state: anchoring, accept, ignore
 │   │   ├── proofreadScheduler.ts debounce + ordering guarantees
+│   │   ├── useGeneration.ts      run/cancel a local model, ordering guarantees
+│   │   ├── diff.ts               word-level diff for reviewing rewrites
+│   │   ├── editorKeymap.ts       key bindings
 │   │   ├── api.ts                typed client for the local backend
 │   │   └── types.ts              mirrors the backend schemas
 │   └── i18n/is.ts           every user-visible string
@@ -70,12 +73,15 @@ ritarinn/
     ├── main.py              app factory, CORS, security headers
     ├── api/                 HTTP routes only; no language logic
     ├── models/              Pydantic schemas (the wire contract)
-    ├── text/offsets.py      UTF-16 ↔ code-point conversion
+    ├── text/
+    │   ├── offsets.py       UTF-16 ↔ code-point conversion
+    │   └── chunking.py      structure-aware document splitting
     └── services/
         ├── correction/      base.py · greynir.py · byt5.py · registry.py
         ├── llm/             base.py · ollama.py
-        ├── summarization/   (Milestone 2)
-        └── simplification/  (Milestone 2)
+        ├── generation/      prompts.py · base.py · postprocess.py
+        ├── summarization/   service.py  (hierarchical)
+        └── simplification/  service.py  (chunk-wise)
 ```
 
 The API layer never imports a concrete engine — it goes through
@@ -161,7 +167,72 @@ Three fields deserve comment:
 `severity` comes from GreynirCorrect's own `/w` warning marker — upstream's
 distinction, not a heuristic of ours.
 
-## 7. Model-agnosticism
+## 7. Generation: chunking, faithfulness, review
+
+Summarization (Samantekt) and plain-language rewriting (Á mannamáli) both run a
+local model over the user's document. Three problems have to be solved before
+that is safe to offer.
+
+**The document is bigger than the context.** Long text is divided in
+`text/chunking.py`, which splits on structure and never mid-sentence: paragraphs
+first, then sentences within an over-long paragraph, and only then — for a
+single sentence longer than the budget — a hard cut. Sentence boundaries come
+from Miðeind's tokenizer, not a regular expression, because Icelandic legal
+prose is dense with abbreviations: `sbr. 3. mgr. 12. gr. laga nr. 7/1998.` is
+one sentence, and splitting on full stops turns it into six fragments with no
+subject. The chunker's central property is that it loses nothing — every
+character lands in exactly one chunk, asserted directly in the tests.
+
+The two features then diverge, because their outputs differ in kind:
+
+- **Summarization is hierarchical.** Each chunk is summarised on its own (told
+  it is a fragment, so it does not conclude from evidence it cannot see), then a
+  combine pass merges the parts. Short documents skip straight to one pass.
+- **Rewriting is not.** Each chunk is rewritten and the results are joined in
+  order. A combine pass would be free to drop material, which is exactly what a
+  rewrite must not do.
+
+**A model will invent things.** The shared faithfulness rules in
+`services/generation/prompts.py` are stated once and reused: do not add
+information, do not fill gaps from general knowledge, keep every number, date,
+name and legal citation, and preserve uncertainty rather than resolving it.
+Prompts are written in Icelandic — a model asked in English to produce Icelandic
+tends to translate rather than compose, and the register slips.
+
+**The output must be capped.** An uncapped reasoning model on a CPU runs until
+it hits a timeout and the user sees a hang rather than a result. Every request
+carries a `num_predict` derived from the requested length, and a response that
+stopped at the cap is reported as `truncated` so the user knows the text may end
+mid-sentence.
+
+Local models are also inconsistent about returning bare prose, so
+`clean_model_output` strips two whole-response artefacts: chain-of-thought
+blocks from reasoning models, and a markdown fence wrapped around the entire
+answer. Markdown *inside* the text is left alone — the user may have asked for
+bullet points.
+
+### Icelandic post-processing of generated text
+
+Generated Icelandic is optionally passed back through GreynirCorrect, which
+combines the model's semantic ability with real Icelandic linguistic analysis.
+In practice this catches a lot: a 4B model will write `taksins` for `talsins`,
+and GreynirCorrect says so.
+
+What this must never do is apply those corrections. A summary is a claim about
+meaning, and silently rewriting it on the strength of a grammar rule could
+change that claim. The issues are shown; the user decides — the same contract as
+the proofreading tab.
+
+### Review before anything is applied
+
+No generated text reaches the document on its own. The browser shows a proposal
+beside the original — a word-level diff for rewrites, side by side for summaries
+(a summary is a new artifact, so a word diff against the source is noise) — with
+Samþykkja, Afrita and Hafna. Accepting dispatches one ordinary CodeMirror
+transaction, so Ctrl+Z undoes it like any other edit, which is what makes trying
+a rewrite safe.
+
+## 8. Model-agnosticism
 
 Generative features are written against `LocalLLMProvider.generate(...)`, never
 against a model family. The model is a configuration value. This matters
@@ -185,11 +256,14 @@ no network, shell, or filesystem access.
 `tests/backend/test_llm_provider.py::test_provider_is_model_agnostic` fails if
 any model family is named in the provider's executable code.
 
-## 8. What v0.1 deliberately does not do
+## 9. What this version deliberately does not do
 
-- **No generation.** Samantekt and Á mannamáli need a local LLM. Rather than
-  reaching for a hosted model, `/api/summarize` and `/api/simplify` return 501
-  and say so — including that no cloud fallback is used.
+- **No generation without a local model.** Samantekt and Á mannamáli need a
+  local model. If none is configured they return 503 and say so; there is no
+  hosted fallback, and no configuration that could create one.
+- **No streaming.** Results appear only when complete, since a partial summary
+  is not reviewable. On slow hardware this means a visible wait, with a cancel
+  button. Streaming is noted in the roadmap.
 - **No ByT5.** It reports itself as an installable option, not a missing
   feature. It never gates first startup.
 - **No automatic model download.** Nothing multi-gigabyte is fetched on the
@@ -200,14 +274,14 @@ any model family is named in the provider's executable code.
 - **No persistence yet.** Drafts and settings are Milestone 5, in IndexedDB. No
   accounts, no sync, no server database.
 
-## 9. Logging
+## 10. Logging
 
 Logs record what happened, never what was written: counts, durations, error
 codes. A `NoDocumentTextFilter` on the root logger drops overlong messages as a
 backstop, but the real defence is that no call site passes document text to the
 logger. Prompts and model output are not logged either.
 
-## 10. Security posture
+## 11. Security posture
 
 - Dependencies pinned exactly, with a resolved lock file
   (`backend/requirements.lock.txt`); enforced by test.
@@ -221,7 +295,7 @@ logger. Prompts and model output are not logged either.
 - Ollama detection uses `trust_env=False`, so an ambient proxy variable cannot
   pull loopback traffic off the loopback interface.
 
-## 11. Editor choice
+## 12. Editor choice
 
 CodeMirror 6, for stable document positions that survive edits, range
 decorations, a real undo history, and correct paste/IME behaviour — all of which

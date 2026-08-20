@@ -18,30 +18,52 @@ Icelandic text containing errors, press "Yfirlesa", see issues underlined,
 click one and accept the proposed correction — while the text never leaves the
 computer.
 
-## Milestone 2 — local generative AI
+## Milestone 2 — local generative AI ✅
 
-- `LocalLLMProvider` implementation for Ollama (`generate`), availability
-  detection is already in place
-- Configurable model name; no automatic download
+Shipped in v0.2.
+
+- `LocalLLMProvider.generate()` implemented for Ollama, alongside the
+  availability detection from Milestone 1
+- Configurable model name; still no automatic download
 - `/api/summarize` — Lengd (Mjög stutt · Stutt · Miðlungs · Ítarleg), Form
   (Samfelldur texti · Punktar)
 - `/api/simplify` — Markhópur (Almenningur · Sérfræðingar · Stjórnendur ·
   Viðskiptavinir · Ungmenni), Stíll (Einfalt mál · Hnitmiðað · Formlegt ·
   Hlutlaust · Vinalegt)
-- Diff view with Samþykkja · Afrita · Hafna — never an automatic replacement
-- Hierarchical summarization for long documents: chunk on paragraph/section
-  boundaries, summarise each chunk, then combine. Never split mid-sentence, and
-  keep the original document independent of any generated summary.
-- Optionally pass generated Icelandic back through GreynirCorrect, showing
-  potential issues without silently altering meaning
+- Word-level diff with Samþykkja · Afrita · Hafna — never an automatic
+  replacement, and accepting is a normal undoable edit
+- Hierarchical summarization for long documents, chunking on paragraph and
+  sentence boundaries and never mid-sentence; the original document is kept
+  independent of any generated summary
+- Generated Icelandic optionally passed back through GreynirCorrect, showing
+  issues without altering the text
 
 Prompts are written in Icelandic and instruct the model to preserve factual
 meaning, numbers, names, dates and important qualifications; to invent nothing;
 to preserve uncertainty; and to output Icelandic.
 
-Verify with outbound internet access blocked.
+**Verified** end to end in a browser against a real local model, with every
+network request confirmed to stay on loopback.
+
+### Deferred from this milestone
+
+- **Streaming.** Results appear only when complete. On CPU-only hardware a long
+  summary is a visible wait — measured at roughly 10 tokens/second on 4 cores —
+  with a cancel button but no progressive output. Streaming would improve this
+  and changes no interfaces.
+- **Model management from the UI.** Choosing a model is a configuration value
+  (`RITARINN_LLM_MODEL`); the Stillingar tab reports what is installed but
+  cannot yet select or install a model. That belongs with Milestone 5's
+  local-model management.
 
 ## Milestone 3 — evaluate model alternatives
+
+**This is now the blocking question.** Milestone 2 built the pipeline; nothing
+in it judges whether a model's Icelandic is good enough to put in front of a
+user, and the small models tested during development are demonstrably not
+(`gemma3:4b` produced `taksins` for `talsins` and `ótt` for `ósk` on a two-
+sentence administrative notice). Ritarinn ships no default model, and should not
+recommend one until this milestone answers the question with evidence.
 
 Qwen is **not** the default by default. Candidates to test include Qwen,
 Mistral, Gemma and Icelandic fine-tunes.

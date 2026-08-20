@@ -38,16 +38,34 @@ In the default configuration the only entry is a loopback address, and it is
 used solely to ask a local Ollama which models you have installed — never to
 send text.
 
+## Generation is local too
+
+Samantekt and Á mannamáli send your text to a language model — one running on
+your own machine, over loopback, loaded from weights already on your disk.
+
+- Ritarinn never downloads a model for you.
+- The inference endpoint **must** be a loopback address. There is no override,
+  and the check is enforced twice: once when configuration loads, and again on
+  every generation request, because that is the one code path carrying your
+  document.
+- The model is given no network, shell or filesystem access.
+- If no local model is configured, generation fails and says so. It does not
+  fall back to a hosted service, because no such code exists.
+- Prompts and model output are never logged.
+
+A model's *origin* does not imply a network dependency. A locally downloaded
+Qwen model runs without contacting Alibaba; the weights are just a file.
+
 ## Verify it yourself
 
 The strongest check is the simplest one:
 
 1. Disconnect the machine from the network.
-2. Start Ritarinn.
-3. Proofread a document.
+2. Start Ritarinn (and Ollama, if you use the generative features).
+3. Proofread, summarize and rewrite a document.
 
-Everything works. Ollama detection reports "Ollama fannst ekki", which is the
-only difference.
+Everything works. Without Ollama installed, the status panel reports "Ollama
+fannst ekki" and proofreading continues unaffected.
 
 You can also watch the traffic:
 
@@ -56,7 +74,7 @@ You can also watch the traffic:
 sudo tcpdump -i any -n 'not (host 127.0.0.1 or host ::1)'
 ```
 
-Proofreading should produce nothing.
+Proofreading, summarization and rewriting should all produce nothing.
 
 ## What is enforced structurally
 

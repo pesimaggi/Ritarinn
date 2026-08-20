@@ -7,11 +7,13 @@ loopback.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
 from ritarinn.config import Settings
-from ritarinn.services.llm.base import FeatureNotAvailableError, GenerationRequest
+from ritarinn.services.llm.base import GenerationRequest, ProviderUnavailableError
 from ritarinn.services.llm.ollama import OllamaProvider
 
 
@@ -71,13 +73,60 @@ def test_disabled_provider_makes_no_request() -> None:
     assert provider.status().available is False
 
 
-def test_generation_is_not_available_in_this_version() -> None:
-    """The seam exists; the feature does not. It does not silently do nothing."""
+def test_generation_requires_a_model() -> None:
+    """Asking without naming a model fails loudly rather than picking one."""
     provider = OllamaProvider(Settings())
-    with pytest.raises(FeatureNotAvailableError):
-        provider.generate(
-            GenerationRequest(system_prompt="", user_prompt="", model="mistral:7b")
+    with pytest.raises(ProviderUnavailableError):
+        provider.generate(GenerationRequest(system_prompt="", user_prompt="", model=""))
+
+
+def test_generation_sends_the_prompt_to_the_local_runtime() -> None:
+    captured: dict = {}
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "127.0.0.1", "generation must stay on loopback"
+        captured.update(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "message": {"role": "assistant", "content": "Niðurstaða."},
+                "done_reason": "stop",
+            },
         )
+
+    provider = _provider_with_response(respond)
+    result = provider.generate(
+        GenerationRequest(
+            system_prompt="kerfi",
+            user_prompt="notandi",
+            model="prófunarlíkan",
+            max_tokens=128,
+        )
+    )
+    assert result.text == "Niðurstaða."
+    assert result.truncated is False
+    assert captured["stream"] is False, "Ritarinn shows complete results only"
+    assert captured["options"]["num_predict"] == 128
+
+
+def test_disabled_provider_refuses_to_generate() -> None:
+    provider = OllamaProvider(Settings(ollama_enabled=False))
+    with pytest.raises(ProviderUnavailableError):
+        provider.generate(
+            GenerationRequest(system_prompt="", user_prompt="", model="prófunarlíkan")
+        )
+
+
+def test_a_missing_model_is_reported_with_the_command_to_fix_it() -> None:
+    def not_found(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "model not found"})
+
+    provider = _provider_with_response(not_found)
+    with pytest.raises(ProviderUnavailableError) as caught:
+        provider.generate(
+            GenerationRequest(system_prompt="", user_prompt="", model="vantar:latest")
+        )
+    assert "ollama pull vantar:latest" in caught.value.detail
 
 
 def test_provider_is_model_agnostic() -> None:
