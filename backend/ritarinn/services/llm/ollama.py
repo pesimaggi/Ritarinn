@@ -212,6 +212,18 @@ class OllamaProvider(LocalLLMProvider):
         message = body.get("message") or {}
         text = clean_model_output(str(message.get("content", "")))
         if not text:
+            # Nothing left after cleaning. When the runtime also reports that it
+            # stopped at the output cap, the model spent its whole budget
+            # reasoning and never reached an answer — a different problem for
+            # the user than a model that simply returned nothing, and one they
+            # can act on.
+            if body.get("done_reason") == "length":
+                raise ProviderUnavailableError(
+                    PROVIDER_NAME,
+                    "Líkanið notaði allt svigrúmið í hugsanaferli og skilaði engri "
+                    "samantekt. Veldu líkan sem ekki 'hugsar' upphátt, eða uppfærðu "
+                    "Ollama svo hægt sé að slökkva á því.",
+                )
             raise ProviderUnavailableError(
                 PROVIDER_NAME, "Staðbundna líkanið skilaði engum texta."
             )
@@ -235,6 +247,11 @@ class OllamaProvider(LocalLLMProvider):
 
 #: Chain-of-thought wrappers emitted by reasoning models that ignore `think`.
 _THINK_BLOCK = re.compile(r"<(think|thinking)>.*?</\1>", re.DOTALL | re.IGNORECASE)
+#: A closing tag with no opening tag. Some reasoning models put the opening tag
+#: in the chat template's assistant prefix rather than generating it, so the
+#: runtime returns a completion that *starts* mid-thought and is terminated by
+#: a bare ``</think>``. Everything up to that tag is reasoning, not an answer.
+_ORPHAN_THINK_CLOSE = re.compile(r"\A.*?</(think|thinking)>", re.DOTALL | re.IGNORECASE)
 #: An unterminated block, which happens when generation is cut off by the cap.
 _UNCLOSED_THINK = re.compile(r"<(think|thinking)>.*\Z", re.DOTALL | re.IGNORECASE)
 #: A whole-response markdown fence, e.g. ```text ... ```
@@ -253,6 +270,7 @@ def clean_model_output(text: str) -> str:
     alone, because the user may legitimately have asked for bullet points.
     """
     cleaned = _THINK_BLOCK.sub("", text)
+    cleaned = _ORPHAN_THINK_CLOSE.sub("", cleaned)
     cleaned = _UNCLOSED_THINK.sub("", cleaned)
     cleaned = cleaned.strip()
 

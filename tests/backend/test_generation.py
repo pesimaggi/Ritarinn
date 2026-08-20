@@ -395,6 +395,42 @@ def test_reasoning_traces_are_stripped_from_output() -> None:
     assert body["text"] == "Samantekt á íslensku."
 
 
+def test_reasoning_is_stripped_when_the_model_never_opened_a_tag() -> None:
+    """The opening tag can come from the chat template, not the model.
+
+    Some reasoning models are primed with ``<think>`` in the assistant prefix,
+    so the completion starts mid-thought and only the closing tag is generated.
+    Without this, a whole chain of thought reaches the document.
+    """
+    fake = FakeOllama(
+        reply="Okay, let's tackle this. The user wants a summary.\n</think>\n"
+        "Samantekt á íslensku."
+    )
+    with make_client(fake) as client:
+        body = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        ).json()
+    assert body["text"] == "Samantekt á íslensku."
+
+
+def test_a_response_that_is_only_reasoning_is_reported_not_returned() -> None:
+    """A model that spent its whole cap thinking has produced no summary.
+
+    Cleaning leaves nothing, and the cap is what stopped it, so the user is
+    told that rather than handed an empty result.
+    """
+    fake = FakeOllama(
+        reply="Okay, let's tackle this. The user wants a summary.\n</think>",
+        done_reason="length",
+    )
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+    assert response.status_code == 503
+    assert "hugsanaferli" in response.json()["detail"]
+
+
 def test_whole_response_markdown_fence_is_removed() -> None:
     fake = FakeOllama(reply="```\nSamantekt á íslensku.\n```")
     with make_client(fake) as client:
