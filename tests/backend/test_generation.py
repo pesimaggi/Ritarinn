@@ -459,3 +459,67 @@ def test_privacy_status_stays_local_with_generation_configured() -> None:
         body = client.get("/api/privacy/status").json()
     assert body["localOnly"] is True
     assert body["remoteProviderConfigured"] is False
+
+
+# -- the schema and the prompt tables must agree ------------------------------
+
+
+@pytest.mark.parametrize(
+    ("annotation", "table_names"),
+    [
+        ("length", ("_LENGTH_GUIDANCE", "LENGTH_TOKEN_BUDGET")),
+        ("form", ("_FORM_GUIDANCE",)),
+        ("audience", ("_AUDIENCE_GUIDANCE",)),
+        ("style", ("_STYLE_GUIDANCE",)),
+    ],
+)
+def test_every_accepted_option_has_prompt_guidance(
+    annotation: str, table_names: tuple[str, ...]
+) -> None:
+    """A value the schema accepts must be one the prompt builder can serve.
+
+    The tables are indexed directly, so a value that passes validation but is
+    missing from one of them is a 500 on a well-formed request. The literal
+    types are the single definition of the vocabulary; this pins the tables to
+    them, in both directions — an unreachable table entry is just as wrong.
+    """
+    from typing import get_args
+
+    from ritarinn.models import api as schemas
+    from ritarinn.services.generation import prompts
+
+    request_model = schemas.SummarizeRequest if annotation in {"length", "form"} else (
+        schemas.SimplifyRequest
+    )
+    accepted = set(get_args(request_model.model_fields[annotation].annotation))
+    assert accepted, f"{annotation} is not constrained to a set of values"
+
+    for table_name in table_names:
+        assert accepted == set(getattr(prompts, table_name)), (
+            f"{table_name} does not cover exactly the values the schema accepts"
+        )
+
+
+@pytest.mark.parametrize(
+    "request_model_name", ["SummarizeRequest", "SimplifyRequest"]
+)
+def test_generation_option_defaults_match_the_service_defaults(request_model_name: str) -> None:
+    """The wire defaults and the service dataclass defaults are one behaviour.
+
+    A client may send only ``text``; the two layers disagreeing would mean the
+    documented default and the applied default are different things.
+    """
+    import dataclasses
+
+    from ritarinn.models import api as schemas
+    from ritarinn.services.simplification import SimplifyOptions
+    from ritarinn.services.summarization import SummaryOptions
+
+    request_model = getattr(schemas, request_model_name)
+    options = SummaryOptions if request_model_name == "SummarizeRequest" else SimplifyOptions
+
+    service_defaults = {f.name: f.default for f in dataclasses.fields(options)}
+    for name, default in service_defaults.items():
+        assert request_model.model_fields[name].default == default, (
+            f"{request_model_name}.{name} defaults differently from {options.__name__}"
+        )

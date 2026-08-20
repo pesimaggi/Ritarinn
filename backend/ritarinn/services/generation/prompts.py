@@ -18,12 +18,10 @@ labels live with the rest of the UI strings in ``frontend/src/i18n``.
 
 from __future__ import annotations
 
-from typing import Literal
-
-SummaryLength = Literal["very_short", "short", "medium", "detailed"]
-SummaryForm = Literal["prose", "bullets"]
-Audience = Literal["general", "experts", "managers", "customers", "youth"]
-SimplifyStyle = Literal["plain", "concise", "formal", "neutral", "friendly"]
+# The option values themselves are defined once, as literal types on the wire
+# contract in ``ritarinn.models.api``, which rejects an unrecognised one before
+# it reaches the tables below. ``tests/backend/test_generation.py`` checks that
+# the two stay in step.
 
 #: The rules that keep generated text faithful to the source. Stated as
 #: prohibitions because that is what models follow most reliably.
