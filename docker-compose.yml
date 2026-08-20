@@ -1,0 +1,49 @@
+# Ritarinn — optional containerised development setup.
+#
+# Docker is a convenience, not the supported path. The supported path is
+# ./setup && ./start (or .\setup.ps1 && .\start.ps1 on Windows), because
+# Ritarinn is a desktop application and Ollama is a separately installed
+# localhost service.
+#
+# Every published port is bound to 127.0.0.1 explicitly. Docker's default
+# port publishing binds to 0.0.0.0, which would expose the editor to the local
+# network — the opposite of what this application promises.
+#
+# GPU passthrough is deliberately not configured: it differs across Windows,
+# Linux, macOS, NVIDIA, AMD and Apple Silicon, and getting it wrong is worse
+# than leaving it out. Run Ollama natively on the host instead.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    ports:
+      - "127.0.0.1:8756:8756"
+    environment:
+      # Inside the container the process must listen on all interfaces for the
+      # published port to reach it. The loopback guarantee is preserved by the
+      # host-side binding above, which is where it is actually enforced.
+      RITARINN_HOST: "0.0.0.0"
+      RITARINN_ALLOW_NON_LOOPBACK: "1"
+      RITARINN_LOG_LEVEL: "INFO"
+      # Ollama runs on the host, not in this container.
+      RITARINN_OLLAMA_URL: "http://127.0.0.1:11434"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8756/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      RITARINN_BACKEND_URL: "http://backend:8756"

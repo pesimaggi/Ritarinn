@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#
+# Ritarinn start — macOS and Linux.
+#
+# Runs the backend and the frontend dev server, both bound to loopback, and
+# shuts both down cleanly on Ctrl-C.
+
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+BOLD=$'\033[1m'; GREEN=$'\033[32m'; OFF=$'\033[0m'
+
+if [ ! -x .venv/bin/python ]; then
+  echo "Sýndarumhverfi fannst ekki. Keyrðu ./setup fyrst." >&2
+  echo "Virtual environment not found. Run ./setup first." >&2
+  exit 1
+fi
+
+if [ ! -d frontend/node_modules ]; then
+  echo "npm-pakkar fundust ekki. Keyrðu ./setup fyrst." >&2
+  echo "Frontend dependencies not found. Run ./setup first." >&2
+  exit 1
+fi
+
+backend_pid=""
+frontend_pid=""
+
+cleanup() {
+  trap - INT TERM EXIT
+  [ -n "$frontend_pid" ] && kill "$frontend_pid" 2>/dev/null || true
+  [ -n "$backend_pid" ] && kill "$backend_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+trap cleanup INT TERM EXIT
+
+.venv/bin/python -m ritarinn &
+backend_pid=$!
+
+(cd frontend && npm run dev --silent) &
+frontend_pid=$!
+
+printf '\n%sRitarinn%s\n' "$BOLD" "$OFF"
+printf '  Viðmót:  %shttp://127.0.0.1:5173%s\n' "$BOLD" "$OFF"
+printf '  Bakendi: http://127.0.0.1:8756\n'
+printf '  %sUnnið staðbundið — enginn texti fer af þessari tölvu.%s\n\n' "$GREEN" "$OFF"
+
+# Exit as soon as either process does, so a crashed backend does not leave a
+# frontend running against nothing.
+wait -n "$backend_pid" "$frontend_pid" 2>/dev/null || wait "$backend_pid" "$frontend_pid" 2>/dev/null || true

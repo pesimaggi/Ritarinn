@@ -1,0 +1,33 @@
+{
+  "name": "ritarinn-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Ritarinn — local-first Icelandic writing assistant (browser UI)",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.8.1",
+    "@codemirror/state": "6.5.2",
+    "@codemirror/view": "6.38.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/react": "16.1.0",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitejs/plugin-react": "4.3.4",
+    "jsdom": "25.0.1",
+    "typescript": "5.7.3",
+    "vite": "6.0.11",
+    "vitest": "2.1.9"
+  }
+}

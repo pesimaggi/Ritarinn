@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+#
+# Ritarinn setup — macOS and Linux.
+#
+# Creates a Python virtual environment, installs backend and frontend
+# dependencies, verifies GreynirCorrect actually works, and reports whether
+# Ollama is present.
+#
+# It deliberately does NOT download any language model. Nothing multi-gigabyte
+# is fetched on your behalf.
+
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+BOLD=$'\033[1m'; DIM=$'\033[2m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'; OFF=$'\033[0m'
+
+step() { printf '\n%s==>%s %s%s\n' "$BOLD" "$OFF" "$1" "$OFF"; }
+ok()   { printf '  %s✓%s %s\n' "$GREEN" "$OFF" "$1"; }
+warn() { printf '  %s○%s %s\n' "$YELLOW" "$OFF" "$1"; }
+fail() { printf '  %s✗%s %s\n' "$RED" "$OFF" "$1" >&2; }
+
+# --- prerequisites ------------------------------------------------------------
+
+step "Athuga forkröfur / Checking prerequisites"
+
+PYTHON=""
+for candidate in python3.12 python3.11 python3.10 python3; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'; then
+      PYTHON="$candidate"
+      break
+    fi
+  fi
+done
+
+if [ -z "$PYTHON" ]; then
+  fail "Python 3.10 eða nýrri fannst ekki. / Python 3.10+ not found."
+  echo "     https://www.python.org/downloads/"
+  exit 1
+fi
+ok "Python: $($PYTHON --version)"
+
+if ! command -v node >/dev/null 2>&1; then
+  fail "Node.js fannst ekki. / Node.js not found."
+  echo "     https://nodejs.org/ (18 eða nýrra / 18 or newer)"
+  exit 1
+fi
+ok "Node.js: $(node --version)"
+
+if ! command -v npm >/dev/null 2>&1; then
+  fail "npm fannst ekki. / npm not found."
+  exit 1
+fi
+
+# --- backend ------------------------------------------------------------------
+
+step "Setja upp bakenda / Installing backend"
+
+if [ ! -d .venv ]; then
+  "$PYTHON" -m venv .venv
+  ok "Sýndarumhverfi búið til / virtual environment created"
+else
+  ok "Sýndarumhverfi til staðar / virtual environment exists"
+fi
+
+VENV_PY=".venv/bin/python"
+"$VENV_PY" -m pip install --quiet --upgrade pip
+"$VENV_PY" -m pip install --quiet -r backend/requirements-dev.txt
+"$VENV_PY" -m pip install --quiet -e backend
+ok "Python-pakkar settir upp / Python packages installed"
+
+# --- verify GreynirCorrect ----------------------------------------------------
+
+step "Staðfesta GreynirCorrect / Verifying GreynirCorrect"
+
+if "$VENV_PY" - <<'PY'
+import sys
+
+try:
+    import reynir_correct
+except Exception as exc:  # noqa: BLE001
+    print(f"    import failed: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+api = reynir_correct.GreynirCorrectAPI.from_options()
+result = api.correct("Þinngið samþikkti tilöguna.")
+found = {
+    annotation.original: annotation.suggest
+    for sentence in result.sentences
+    for annotation in (sentence.annotations or [])
+}
+if found.get("Þinngið") != "Þingið":
+    print(f"    unexpected output: {found}", file=sys.stderr)
+    raise SystemExit(1)
+print(f"    reynir-correct {reynir_correct.__version__}: 'Þinngið' -> 'Þingið'")
+PY
+then
+  ok "GreynirCorrect tilbúið / ready"
+else
+  fail "GreynirCorrect virkar ekki. / GreynirCorrect is not working."
+  exit 1
+fi
+
+# --- frontend -----------------------------------------------------------------
+
+step "Setja upp viðmót / Installing frontend"
+
+(cd frontend && npm install --silent)
+ok "npm-pakkar settir upp / npm packages installed"
+
+# --- optional: Ollama ---------------------------------------------------------
+
+step "Leita að Ollama / Looking for Ollama"
+
+OLLAMA_URL="${RITARINN_OLLAMA_URL:-http://127.0.0.1:11434}"
+if curl -fsS --max-time 2 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
+  ok "Ollama fannst á $OLLAMA_URL / found"
+  warn "Ekkert líkan er valið. Yfirlestur virkar án þess. / No model selected; proofreading works without one."
+else
+  warn "Ollama fannst ekki. / not found."
+  printf '    %sYfirlestur virkar án Ollama. Það þarf aðeins fyrir samantekt og einföldun (áfangi 2).%s\n' "$DIM" "$OFF"
+  printf '    %sProofreading works without it; it is only needed for summarization and simplification.%s\n' "$DIM" "$OFF"
+fi
+
+printf '\n%sUppsetningu lokið. / Setup complete.%s\n' "$GREEN$BOLD" "$OFF"
+printf 'Keyrðu %s./start%s og opnaðu %shttp://127.0.0.1:5173%s\n\n' "$BOLD" "$OFF" "$BOLD" "$OFF"
