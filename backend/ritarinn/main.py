@@ -66,7 +66,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         # rather than surfacing as a slow first request.
         registry.warm_up()
         logger.info(
-            "Ritarinn %s listening on http://%s:%d (local only)",
+            "Ritarinn %s listening on %s port %d (local only)",
             __version__,
             settings.host,
             settings.port,

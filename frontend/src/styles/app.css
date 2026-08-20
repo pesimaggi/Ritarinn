@@ -1,0 +1,599 @@
+/*
+ * Ritarinn's stylesheet.
+ *
+ * System fonts only. No @font-face, no Google Fonts, no CDN: the interface has
+ * to render identically with the machine offline, and a remote font request
+ * would leak the fact that the application is open.
+ *
+ * The visual direction is deliberately restrained — the document is the
+ * interesting thing on screen, not the chrome around it.
+ */
+
+:root {
+  --ritarinn-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+    "Helvetica Neue", Arial, sans-serif;
+  --ritarinn-font-ui: var(--ritarinn-font-body);
+
+  --ritarinn-bg: #fbfbfa;
+  --ritarinn-surface: #ffffff;
+  --ritarinn-border: #e2e2df;
+  --ritarinn-text: #1c1c1a;
+  --ritarinn-muted: #6a6a64;
+
+  --ritarinn-accent: #2b5f8e;
+  --ritarinn-accent-soft: #eaf1f7;
+
+  --ritarinn-spelling: #c2410c;
+  --ritarinn-grammar: #7c3aed;
+  --ritarinn-punctuation: #0f766e;
+  --ritarinn-style: #a16207;
+  --ritarinn-unknown: #6a6a64;
+
+  --ritarinn-local: #15803d;
+  --ritarinn-warning: #b45309;
+
+  --ritarinn-radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ritarinn-bg: #16181a;
+    --ritarinn-surface: #1e2124;
+    --ritarinn-border: #33383d;
+    --ritarinn-text: #e8e8e4;
+    --ritarinn-muted: #9aa0a6;
+
+    --ritarinn-accent: #7bb0e0;
+    --ritarinn-accent-soft: #22303c;
+
+    --ritarinn-spelling: #fb923c;
+    --ritarinn-grammar: #c4b5fd;
+    --ritarinn-punctuation: #5eead4;
+    --ritarinn-style: #fcd34d;
+    --ritarinn-unknown: #9aa0a6;
+
+    --ritarinn-local: #4ade80;
+    --ritarinn-warning: #fbbf24;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ritarinn-bg);
+  color: var(--ritarinn-text);
+  font-family: var(--ritarinn-font-ui);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- layout ---------------------------------------------------------------- */
+
+.ritarinn-app {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  height: 100%;
+}
+
+.ritarinn-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--ritarinn-border);
+  background: var(--ritarinn-surface);
+}
+
+.ritarinn-brand {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.ritarinn-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0 1.25rem;
+  border-bottom: 1px solid var(--ritarinn-border);
+  background: var(--ritarinn-surface);
+}
+
+.ritarinn-tab {
+  padding: 0.6rem 0.9rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ritarinn-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ritarinn-tab:hover {
+  color: var(--ritarinn-text);
+}
+
+.ritarinn-tab.is-active {
+  color: var(--ritarinn-text);
+  border-bottom-color: var(--ritarinn-accent);
+  font-weight: 550;
+}
+
+.ritarinn-main {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ritarinn-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24rem;
+  height: 100%;
+  min-height: 0;
+}
+
+.ritarinn-workspace.is-hidden {
+  display: none;
+}
+
+.ritarinn-editor-column {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid var(--ritarinn-border);
+  background: var(--ritarinn-surface);
+}
+
+.ritarinn-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--ritarinn-border);
+}
+
+.ritarinn-editor {
+  min-height: 0;
+  overflow: auto;
+}
+
+.ritarinn-statusbar {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  padding: 0.5rem 1.25rem;
+  border-top: 1px solid var(--ritarinn-border);
+  background: var(--ritarinn-surface);
+  color: var(--ritarinn-muted);
+  font-size: 0.82rem;
+}
+
+.ritarinn-statusbar__right {
+  margin-left: auto;
+}
+
+/* --- issue underlines ------------------------------------------------------ */
+
+.ritarinn-issue {
+  /* A wavy underline marks the span without recolouring the author's text. */
+  text-decoration: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.ritarinn-issue--spelling {
+  text-decoration-color: var(--ritarinn-spelling);
+}
+.ritarinn-issue--grammar {
+  text-decoration-color: var(--ritarinn-grammar);
+}
+.ritarinn-issue--punctuation {
+  text-decoration-color: var(--ritarinn-punctuation);
+}
+.ritarinn-issue--style {
+  text-decoration-color: var(--ritarinn-style);
+}
+.ritarinn-issue--unknown {
+  text-decoration-color: var(--ritarinn-unknown);
+}
+
+.ritarinn-issue--warning {
+  text-decoration-style: dotted;
+}
+
+.ritarinn-issue--selected {
+  background: var(--ritarinn-accent-soft);
+  border-radius: 2px;
+}
+
+/* --- suggestions panel ----------------------------------------------------- */
+
+.ritarinn-panel {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.1rem 2rem;
+  background: var(--ritarinn-bg);
+}
+
+.ritarinn-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ritarinn-panel__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.ritarinn-panel__empty {
+  color: var(--ritarinn-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.ritarinn-panel__group {
+  margin-bottom: 1.25rem;
+}
+
+.ritarinn-panel__group-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-panel__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ritarinn-panel__ignored {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--ritarinn-border);
+  color: var(--ritarinn-muted);
+  font-size: 0.82rem;
+}
+
+.ritarinn-issue-card {
+  border: 1px solid var(--ritarinn-border);
+  border-radius: var(--ritarinn-radius);
+  background: var(--ritarinn-surface);
+  overflow: hidden;
+}
+
+.ritarinn-issue-card.is-selected {
+  border-color: var(--ritarinn-accent);
+  box-shadow: 0 0 0 1px var(--ritarinn-accent);
+}
+
+.ritarinn-issue-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.6rem 0.7rem 0.4rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ritarinn-issue-card__title {
+  flex: 1 1 100%;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.ritarinn-issue-card__body {
+  padding: 0 0.7rem 0.7rem;
+}
+
+.ritarinn-tag {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--ritarinn-accent-soft);
+  color: var(--ritarinn-accent);
+}
+
+.ritarinn-tag--spelling {
+  color: var(--ritarinn-spelling);
+}
+.ritarinn-tag--grammar {
+  color: var(--ritarinn-grammar);
+}
+.ritarinn-tag--punctuation {
+  color: var(--ritarinn-punctuation);
+}
+.ritarinn-tag--style {
+  color: var(--ritarinn-style);
+}
+.ritarinn-tag--warning {
+  color: var(--ritarinn-warning);
+}
+
+.ritarinn-diff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.ritarinn-diff__original {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-diff__arrow {
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-diff__replacement {
+  font-weight: 600;
+}
+
+.ritarinn-issue-card__explanation,
+.ritarinn-issue-card__note,
+.ritarinn-issue-card__alternatives {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-issue-card__label {
+  font-weight: 600;
+}
+
+.ritarinn-issue-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ritarinn-issue-card__code {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--ritarinn-muted);
+}
+
+/* --- buttons --------------------------------------------------------------- */
+
+.ritarinn-button {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--ritarinn-border);
+  border-radius: 6px;
+  background: var(--ritarinn-surface);
+  color: var(--ritarinn-text);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.ritarinn-button:hover:not(:disabled) {
+  border-color: var(--ritarinn-accent);
+}
+
+.ritarinn-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ritarinn-button--primary {
+  background: var(--ritarinn-accent);
+  border-color: var(--ritarinn-accent);
+  color: #ffffff;
+  font-weight: 550;
+}
+
+.ritarinn-button--subtle {
+  border-color: transparent;
+  background: none;
+  color: var(--ritarinn-accent);
+}
+
+/* --- privacy indicator ----------------------------------------------------- */
+
+.ritarinn-privacy {
+  position: relative;
+}
+
+.ritarinn-privacy__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--ritarinn-border);
+  border-radius: 999px;
+  background: var(--ritarinn-surface);
+  color: var(--ritarinn-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.ritarinn-privacy__badge.is-local {
+  color: var(--ritarinn-local);
+  border-color: color-mix(in srgb, var(--ritarinn-local) 40%, transparent);
+}
+
+.ritarinn-privacy__badge.is-unverified {
+  color: var(--ritarinn-warning);
+}
+
+.ritarinn-privacy__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ritarinn-privacy__popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 10;
+  width: 22rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ritarinn-border);
+  border-radius: var(--ritarinn-radius);
+  background: var(--ritarinn-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  font-size: 0.82rem;
+}
+
+.ritarinn-privacy__summary {
+  margin: 0 0 0.6rem;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.ritarinn-privacy__details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-privacy__details dt {
+  font-weight: 600;
+}
+
+.ritarinn-privacy__details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* --- setup / settings / placeholders --------------------------------------- */
+
+.ritarinn-settings,
+.ritarinn-placeholder {
+  max-width: 46rem;
+  padding: 1.75rem 1.5rem;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.ritarinn-setup__group {
+  margin-bottom: 1.5rem;
+}
+
+.ritarinn-setup__group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-setup__group p {
+  margin: 0.25rem 0;
+}
+
+.ritarinn-setup__hint {
+  color: var(--ritarinn-muted);
+  font-size: 0.82rem;
+}
+
+.ritarinn-indicator {
+  display: inline-block;
+  width: 1.25rem;
+  color: var(--ritarinn-muted);
+}
+
+.ritarinn-indicator.is-ok {
+  color: var(--ritarinn-local);
+}
+
+.ritarinn-placeholder h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.ritarinn-placeholder p {
+  line-height: 1.6;
+  max-width: 40rem;
+}
+
+.ritarinn-placeholder__promise {
+  color: var(--ritarinn-local);
+}
+
+.ritarinn-placeholder__version,
+.ritarinn-attribution p {
+  color: var(--ritarinn-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.ritarinn-attribution {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--ritarinn-border);
+}
+
+.ritarinn-attribution h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ritarinn-muted);
+}
+
+/* --- errors ---------------------------------------------------------------- */
+
+.ritarinn-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1.25rem;
+  background: color-mix(in srgb, var(--ritarinn-warning) 12%, var(--ritarinn-surface));
+  border-bottom: 1px solid var(--ritarinn-border);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .ritarinn-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  .ritarinn-panel {
+    max-height: 45vh;
+  }
+}

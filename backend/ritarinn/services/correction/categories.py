@@ -26,20 +26,34 @@ UNKNOWN = "unknown"
 CATEGORIES = (SPELLING, GRAMMAR, PUNCTUATION, STYLE, UNKNOWN)
 
 
+#: What an issue's span means.
+#:
+#: "span"     — the offsets delimit the problem itself, so the editor underlines
+#:              them and a replacement can be applied to exactly that range.
+#: "sentence" — the annotation is about a whole sentence (it failed to parse, it
+#:              is very long, it is not Icelandic). Its span covers the entire
+#:              sentence, so underlining it would draw a line under a paragraph
+#:              and bury the word-level issues inside it. These are listed in the
+#:              sidebar instead.
+SPAN_SCOPE = "span"
+SENTENCE_SCOPE = "sentence"
+
+
 class CodeFamily(NamedTuple):
     """A group of related GreynirCorrect codes."""
 
     category: str
     #: Icelandic label for the family, shown as the issue's group heading.
     label: str
+    scope: str = SPAN_SCOPE
 
 
 # Whole-code overrides, checked before prefix rules.
 _EXACT: dict[str, CodeFamily] = {
     # Sentence-level observations produced by the parser stage.
-    "E001": CodeFamily(UNKNOWN, "Ógreind málsgrein"),
-    "E004": CodeFamily(UNKNOWN, "Ekki íslenska"),
-    "E005": CodeFamily(STYLE, "Löng málsgrein"),
+    "E001": CodeFamily(UNKNOWN, "Ógreind málsgrein", SENTENCE_SCOPE),
+    "E004": CodeFamily(UNKNOWN, "Ekki íslenska", SENTENCE_SCOPE),
+    "E005": CodeFamily(STYLE, "Löng málsgrein", SENTENCE_SCOPE),
     "E006": CodeFamily(STYLE, "Skammstafanir"),
     "E007": CodeFamily(STYLE, "Upphrópunarmerki"),
     # Emitted by the grammar stage for numerals written as digits.

@@ -229,6 +229,7 @@ class GreynirCorrectEngine(CorrectionEngine):
             family=family.label,
             start_char=offsets.to_utf16(start),
             end_char=offsets.to_utf16(end),
+            scope=family.scope,
             original=original,
             replacement=suggestion,
             alternatives=alternatives,

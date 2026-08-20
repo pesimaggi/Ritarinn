@@ -1,0 +1,138 @@
+{
+  "description": "Icelandic development corpus for Ritarinn. Written for this project; see corpus/README.md.",
+  "cases": [
+    {
+      "id": "spelling-obvious",
+      "register": "hlutlaust",
+      "text": "Þinngið samþikkti tilöguna.",
+      "intended_errors": ["spelling"],
+      "note": "Three plain misspellings in one short sentence."
+    },
+    {
+      "id": "case-government",
+      "register": "hlutlaust",
+      "text": "Páli, vini mínum, langaði að horfa á sjónnvarpið.",
+      "intended_errors": ["grammar", "spelling"],
+      "note": "Impersonal verb 'að langa' takes an accusative subject, plus a misspelling."
+    },
+    {
+      "id": "agreement",
+      "register": "hlutlaust",
+      "text": "Börnin var glöð þegar þau komu heim úr skólanum.",
+      "intended_errors": ["grammar"],
+      "note": "Number agreement between subject and verb."
+    },
+    {
+      "id": "compound-split",
+      "register": "hlutlaust",
+      "text": "Hann starfar hjá fjármála ráðuneytinu og les dag blöðin á morgnana.",
+      "intended_errors": ["compound"],
+      "note": "Compounds wrongly written as two words."
+    },
+    {
+      "id": "duplicated-words",
+      "register": "óformlegt",
+      "text": "Ég ætla að að fara í búðina og kaupa mjólk og og brauð.",
+      "intended_errors": ["duplication"],
+      "note": "Repeated words, a common typing slip."
+    },
+    {
+      "id": "punctuation",
+      "register": "hlutlaust",
+      "text": "Hvað ætlar þú að gera á morgun.. Ég veit það ekki!!!",
+      "intended_errors": ["punctuation"],
+      "note": "Doubled periods and repeated exclamation marks."
+    },
+    {
+      "id": "informal",
+      "register": "óformlegt",
+      "text": "Sæll, ég er bara að spá hvort þú sért til í að hittast einhvertíman í næstu viku?",
+      "intended_errors": ["spelling", "style"],
+      "note": "Everyday conversational Icelandic."
+    },
+    {
+      "id": "formal",
+      "register": "formlegt",
+      "text": "Undirritaður óskar hér með eftir því að erindi þetta verði tekið til afgreiðslu á næsta fundi nefndarinnar.",
+      "intended_errors": [],
+      "note": "Formal but correct; should not produce spelling errors."
+    },
+    {
+      "id": "legal",
+      "register": "lögfræðilegt",
+      "text": "Óheimilt er að framselja réttindi samkvæmt samningi þessum án skriflegs samþykkis gagnaðila, sbr. 3. mgr. 12. gr. laga nr. 7/1998.",
+      "intended_errors": [],
+      "note": "Legal Icelandic with statutory references and abbreviations."
+    },
+    {
+      "id": "bureaucratic",
+      "register": "stjórnsýsla",
+      "text": "Með vísan til framangreinds og að teknu tilliti til þeirra sjónarmiða sem fram koma í umsögn sviðsins er það mat stofnunarinnar að ekki séu forsendur til að verða við erindinu.",
+      "intended_errors": [],
+      "note": "Dense administrative prose; the main target of the future plain-language feature."
+    },
+    {
+      "id": "scientific",
+      "register": "vísindalegt",
+      "text": "Niðurstöður mælinganna benda til þess að meðalhiti sjávar við Suðurland hafi hækkað um 0,8 °C á tímabilinu 1996 til 2021.",
+      "intended_errors": [],
+      "note": "Scientific writing with numbers, units and a date range that must survive processing."
+    },
+    {
+      "id": "icelandic-alphabet",
+      "register": "hlutlaust",
+      "text": "Ást, épli, ís, ól, úr, ýmis, þök, æði, öl og ðið eru orð með séríslenskum stöfum.",
+      "intended_errors": ["spelling"],
+      "note": "Exercises á é í ó ú ý þ æ ö ð in running text."
+    },
+    {
+      "id": "smart-punctuation",
+      "register": "hlutlaust",
+      "text": "Hann sagði „þetta er ágætt“ — en bætti svo við: „við sjáum til.“",
+      "intended_errors": [],
+      "note": "Icelandic quotation marks and an em dash; offsets must survive them."
+    },
+    {
+      "id": "emoji-mixed",
+      "register": "óformlegt",
+      "text": "Til hamingju 🎉 með daginn! Þinngið samþikkti tilöguna 😀 í morgun.",
+      "intended_errors": ["spelling"],
+      "note": "Astral-plane characters before the errors: catches UTF-16 vs code-point offset bugs."
+    },
+    {
+      "id": "combining-characters",
+      "register": "hlutlaust",
+      "text": "Orðið ólafur er ritað með samsettum staf en Ólafur með einum.",
+      "intended_errors": ["spelling"],
+      "note": "Combining acute accent versus a precomposed character."
+    },
+    {
+      "id": "multi-paragraph",
+      "register": "hlutlaust",
+      "text": "Fyrsta málsgreinin inniheldur eina viilu.\n\nÖnnur málsgreinin er lengri og inniheldur tvær villur, bæði stafsettningarvillu og aðra viilu.\n\nÞriðja málsgreinin er rétt.",
+      "intended_errors": ["spelling"],
+      "note": "Paragraph breaks must not shift offsets in later paragraphs."
+    },
+    {
+      "id": "long-paragraph",
+      "register": "hlutlaust",
+      "text": "Í skýrslunni kemur fram að unnið hafi verið að undirbúningi verkefnisins frá árinu 2019, að samráð hafi verið haft við hagsmunaaðila á öllum stigum málsins, að kostnaðaráætlun hafi verið endurskoðuð tvisvar á tímabilinu, að tafir hafi orðið vegna aðfangakeðjuvanda og að stefnt sé að því að framkvæmdum ljúki fyrir árslok 2027, að því gefnu að fjármögnun liggi fyrir í fjárlögum næsta árs og að ekki komi til frekari tafa af völdum veðurs eða annarra ófyrirséðra atvika sem ekki verður séð fyrir á þessari stundu.",
+      "intended_errors": [],
+      "note": "A single long sentence; exercises parser behaviour on difficult input."
+    },
+    {
+      "id": "empty",
+      "register": "hlutlaust",
+      "text": "",
+      "intended_errors": [],
+      "note": "Empty input must be handled without error."
+    },
+    {
+      "id": "whitespace-only",
+      "register": "hlutlaust",
+      "text": "   \n\n  ",
+      "intended_errors": [],
+      "note": "Whitespace-only input must be handled without error."
+    }
+  ]
+}
