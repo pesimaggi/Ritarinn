@@ -1,0 +1,34 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Local models and caches (never commit model weights)
+models/
+*.gguf
+*.safetensors
+*.bin
+
+# Local configuration and secrets
+.env
+.env.local
+ritarinn.local.toml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
