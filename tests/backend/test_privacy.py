@@ -270,10 +270,24 @@ def test_frontend_dependencies_are_pinned_and_minimal() -> None:
             assert re.fullmatch(r"\d+\.\d+\.\d+", spec), f"{name} is not pinned exactly: {spec}"
 
 
-def test_backend_dependencies_are_pinned() -> None:
-    requirements = (REPO_ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8")
+@pytest.mark.parametrize("name", ["requirements.txt", "requirements-byt5.txt"])
+def test_backend_dependencies_are_pinned(name: str) -> None:
+    """Optional dependencies are dependencies too, and are pinned the same way."""
+    requirements = (REPO_ROOT / "backend" / name).read_text(encoding="utf-8")
     for line in requirements.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        assert "==" in line, f"unpinned backend dependency: {line}"
+        assert "==" in line, f"unpinned backend dependency in {name}: {line}"
+
+
+def test_optional_model_dependencies_are_not_installed_by_default() -> None:
+    """PyTorch must not arrive with an ordinary `./setup`.
+
+    The neural corrector is an addition to proofreading, not a prerequisite for
+    it, and a multi-hundred-megabyte dependency should never be acquired by
+    someone who only wanted a proofreader.
+    """
+    base = (REPO_ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8").lower()
+    for package in ["torch", "transformers", "huggingface"]:
+        assert package not in base, f"{package} is in the default dependency set"

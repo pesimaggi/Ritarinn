@@ -44,9 +44,15 @@ class ProofreadResponse(RitarinnModel):
     #: Stated rather than implied: a client must not have to guess how offsets
     #: are counted. See ``docs/architecture.md`` section 4.
     offset_unit: Literal["utf16"] = "utf16"
-    #: The engines that actually ran, in the order their issues were collected.
+    #: The engines that *actually ran*, in the order their issues were
+    #: collected. A configured engine that turned out not to be installed is
+    #: skipped rather than failing the request, so this can be shorter than what
+    #: was asked for — and saying which engines answered is how a client can
+    #: tell the difference between "nothing wrong" and "nothing looked".
     engines: list[str]
-    #: Counts and timings only. Never contains user text — these are logged.
+    #: Counts, timings, and short markers such as ``"byt5.skipped"``. Never
+    #: contains user text, and never an engine's explanation of itself — those
+    #: name paths and commands, and belong in ``/api/models/status``.
     stats: dict[str, int | float | str] = Field(default_factory=dict)
 
 

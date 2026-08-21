@@ -4,7 +4,7 @@ These run against a scripted fake Ollama rather than a real model, so they are
 deterministic and fast. What they verify is the machinery Ritarinn is
 responsible for — chunking, hierarchical combination, output cleaning, token
 caps, error mapping, and the promise that nothing is applied automatically —
-not the quality of a model's Icelandic, which is Milestone 3's subject and
+not the quality of a model's Icelandic, which is Track A's subject and
 cannot be asserted in a unit test.
 
 A real model is exercised separately; see docs/roadmap.md.

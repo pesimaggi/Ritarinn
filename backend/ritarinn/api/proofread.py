@@ -46,34 +46,56 @@ def proofread(
 
     request = CorrectionRequest(text=payload.text, ignore_codes=frozenset(payload.ignore_codes))
 
+    # A client that asked for a specific engine gets told when it is not
+    # installed. A default selection that happens to include an optional engine
+    # must not take proofreading down with it, so an unavailable one is skipped
+    # and the response reports which engines actually ran.
+    named_by_client = bool(payload.engines)
+
     issues: list[WritingIssue] = []
     stats: dict[str, float | int | str] = {}
+    ran: list[str] = []
+    unavailable: list[EngineUnavailableError] = []
     for engine in engines:
         try:
             outcome = engine.analyze(request)
         except EngineUnavailableError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=exc.detail,
-            ) from exc
+            if named_by_client:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=exc.detail,
+                ) from exc
+            unavailable.append(exc)
+            # A marker, not the explanation. The explanation names a filesystem
+            # path or an install command, and /api/models/status is where it
+            # belongs; this response is about the document.
+            stats[f"{engine.name}.skipped"] = "unavailable"
+            continue
+        ran.append(engine.name)
         issues.extend(outcome.issues)
         for key, value in outcome.stats.items():
             stats[f"{engine.name}.{key}"] = value
 
+    if not ran and unavailable:
+        # Nothing could run at all. Reporting an empty result would look like a
+        # document with no problems in it, which is a different claim entirely.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=unavailable[0].detail,
+        ) from unavailable[0]
+
     # Ordering by position lets the sidebar follow the document, and makes the
-    # response stable across engines for a given input.
-    issues.sort(key=lambda issue: (issue.start_char, issue.end_char))
+    # response stable across engines for a given input. ``source`` breaks ties
+    # so that two engines reporting the same span come back in a fixed order
+    # rather than in whichever order they happened to be registered.
+    issues.sort(key=lambda issue: (issue.start_char, issue.end_char, issue.source))
 
     # Counts and timings only — never the text itself. See docs/privacy.md.
     logger.info(
         "proofread completed | engines=%s | chars=%d | issues=%d",
-        ",".join(engine.name for engine in engines),
+        ",".join(ran),
         len(payload.text),
         len(issues),
     )
 
-    return ProofreadResponse(
-        issues=issues,
-        engines=[engine.name for engine in engines],
-        stats=stats,
-    )
+    return ProofreadResponse(issues=issues, engines=ran, stats=stats)

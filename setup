@@ -123,5 +123,21 @@ else
   printf '    %sProofreading works without it; it is only needed for summarization and simplification.%s\n' "$DIM" "$OFF"
 fi
 
+# --- optional: the neural corrector -------------------------------------------
+#
+# Reported, never installed. It needs PyTorch and a 2.3 GB download, and
+# proofreading does not depend on either.
+
+step "Valfrjáls tauganetsleiðrétting / Optional neural correction"
+
+if "$VENV_PY" -c 'import importlib.util, sys; sys.exit(0 if importlib.util.find_spec("torch") and importlib.util.find_spec("transformers") else 1)' 2>/dev/null; then
+  ok "PyTorch og Transformers til staðar / present"
+  printf '    %sSæktu líkanið með: .venv/bin/python scripts/install_byt5.py%s\n' "$DIM" "$OFF"
+else
+  warn "Ekki uppsett. Yfirlestur virkar án hennar. / Not installed; proofreading works without it."
+  printf '    %sTil að prófa hana: pip install -r backend/requirements-byt5.txt%s\n' "$DIM" "$OFF"
+  printf '    %sSjá README, kaflann um ByT5. / See the ByT5 section in the README.%s\n' "$DIM" "$OFF"
+fi
+
 printf '\n%sUppsetningu lokið. / Setup complete.%s\n' "$GREEN$BOLD" "$OFF"
 printf 'Keyrðu %s./start%s og opnaðu %shttp://127.0.0.1:5173%s\n\n' "$BOLD" "$OFF" "$BOLD" "$OFF"

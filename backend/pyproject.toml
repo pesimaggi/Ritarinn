@@ -19,6 +19,15 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1"]
+# The neural correction provider. Optional on purpose: proofreading,
+# summarization and rewriting all work without PyTorch installed. Kept in step
+# with backend/requirements-byt5.txt, which also documents the CPU-only wheel.
+byt5 = [
+    "torch==2.13.0",
+    "transformers==5.15.1",
+    "huggingface-hub==1.28.0",
+    "safetensors==0.8.0",
+]
 
 [project.scripts]
 ritarinn-backend = "ritarinn.__main__:main"
