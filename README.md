@@ -131,15 +131,43 @@ all marking it as one.
 
 Ritarinn recognises such a response by how it reads — English function words at
 a density Icelandic never reaches, or an opening that restates the request — and
-never shows it. It retries once with the reasoning switched off explicitly, and
-if that also fails it says so instead of pasting the model's notes into your
-document. The same check catches a model that summarises correctly but answers
-in English.
+never shows it. The same check catches a model that summarises correctly but
+answers in English.
 
-If you keep hitting it, upgrade Ollama first (newer versions honour the
-reasoning flag), and otherwise pick a model that does not reason aloud. The
-detection is a backstop, not a substitute: every retry is a second local
-generation, and on a CPU you will feel it.
+It then retries once, doing two things at the same time, because there are two
+kinds of reasoning model and only one of them can be talked out of it:
+
+- it asks the chat template not to reason, which works for the model families
+  that have a switch for it;
+- it raises the output cap sharply, which is what the others need. A model that
+  reasons unconditionally is not broken and its Icelandic may be excellent — it
+  just has to think first, and it needs room to finish. Given the room it closes
+  the reasoning block, and Ritarinn strips it on the tag as it always could.
+
+Raising the cap costs nothing when the switch does work, because a cap is a
+ceiling and not a target: a model that answers immediately stops immediately.
+Both are remembered for that model, so a long document pays for the discovery
+once rather than on every chunk, and neither is applied to a model that has not
+shown the problem.
+
+**If a model you like still fails this way, raise
+`RITARINN_LLM_REASONING_HEADROOM` before giving up on it.** How much room a
+model needs to finish thinking is a property of that model, and nothing in
+Ritarinn can know it; the default is a guess that suits most. Setting it high
+costs nothing when unused, though on slow hardware it makes `RITARINN_LLM_TIMEOUT`
+the next thing to hit.
+
+One thing Ritarinn will not do is refuse Icelandic. A chain of thought is
+overwhelmingly English, so the check is far more certain about English than
+about Icelandic — *"Allt í lagi, hér kemur samantektin"* is a summary with a
+conversational opening, not a model thinking aloud, and the two do not differ in
+their first line. Icelandic that only looks like reasoning is retried once and
+then shown to you anyway. You can see in a second whether it is what you asked
+for; an error after two local generations leaves you with nothing.
+
+Upgrading Ollama is worth doing regardless — newer versions honour the reasoning
+flag directly, which avoids the retry entirely, and on a CPU you will feel the
+difference.
 
 <details>
 <summary>Manual installation</summary>
@@ -299,6 +327,7 @@ All optional; the defaults are the local-first ones.
 | `RITARINN_LLM_TIMEOUT` | `300` | Seconds; a local model on a CPU is slow |
 | `RITARINN_LLM_TEMPERATURE` | `0.2` | Low: these features preserve meaning |
 | `RITARINN_LLM_CONTEXT_CHARS` | `6000` | Source characters per model call |
+| `RITARINN_LLM_REASONING_HEADROOM` | `3072` | Extra tokens for a model that must think first |
 | `RITARINN_LOG_LEVEL` | `INFO` | Logs never contain document text |
 
 ### Documentation

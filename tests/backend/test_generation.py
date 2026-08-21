@@ -841,3 +841,193 @@ def test_a_model_that_needed_the_nudge_gets_it_from_then_on() -> None:
     assert all("/no_think" in prompt for prompt in fake.system_prompts[1:])
     # One extra call in total — the retry — not one per chunk.
     assert len(fake.requests) == response.json()["chunks"] + 2
+
+
+# -- the reasoning model that cannot be talked out of it ----------------------
+#
+# The soft switch is a chat-template convention. Some model families honour it;
+# others have no equivalent, and a template that opens the reasoning block
+# unconditionally reasons whatever it is told. Such a model is not broken and
+# its Icelandic may be excellent — it just has to think first, and the only
+# thing it needs is room to finish. Given that room it closes the block, and
+# tag stripping works as it always did.
+
+
+class AlwaysThinkingOllama(FakeOllama):
+    """A model that reasons before answering and ignores every request not to.
+
+    Behaviour depends on the output budget it is given, which is the whole point:
+    below what its reasoning costs, the response is cut off mid-thought with no
+    closing tag to strip, which is the reported failure. Above it, the model
+    closes the block and writes the summary.
+
+    The opening tag is never emitted, because the chat template supplied it —
+    the response begins mid-thought, exactly as the real ones do.
+    """
+
+    #: What this model's reasoning costs before it writes anything.
+    THINKING_TOKENS = 1600
+
+    ANSWER = "Vinahópur fór í sumarbústað og ferðin heppnaðist vel þrátt fyrir rigningu."
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/api/chat":
+            return super().handler(request)
+        body = json.loads(request.content.decode("utf-8"))
+        self.requests.append(body)
+
+        budget = body["options"]["num_predict"]
+        reasoning = "Okay, let's tackle this. The user wants a summary of the text. "
+        if budget < self.THINKING_TOKENS:
+            # Cut off mid-thought: no closing tag is ever generated.
+            content, done = reasoning + "First, I need to identify the main", "length"
+        else:
+            content, done = f"{reasoning}</think>\n{self.ANSWER}", "stop"
+
+        return httpx.Response(
+            200,
+            json={
+                "model": body["model"],
+                "message": {"role": "assistant", "content": content},
+                "done": True,
+                "done_reason": done,
+            },
+        )
+
+
+def test_a_model_that_must_think_is_given_room_to_finish() -> None:
+    """The retry does not only try to suppress reasoning — it also allows it.
+
+    Suppression alone would fail this model on every request, and refuse the
+    user a summary it is perfectly capable of writing.
+    """
+    fake = AlwaysThinkingOllama()
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["text"] == AlwaysThinkingOllama.ANSWER
+    assert len(fake.requests) == 2
+    first, second = (body["options"]["num_predict"] for body in fake.requests)
+    assert second > first, "the retry raises the cap, not only the instructions"
+    assert second >= AlwaysThinkingOllama.THINKING_TOKENS
+
+
+def test_the_headroom_is_kept_for_later_chunks_of_the_same_document() -> None:
+    """Otherwise every chunk of a long document repeats the whole discovery."""
+    fake = AlwaysThinkingOllama()
+    long_text = "\n\n".join(f"Málsgrein {n}. {LEGAL_TEXT}" for n in range(12))
+    with make_client(fake, llm_context_chars=400) as client:
+        response = client.post(
+            "/api/summarize", json={"text": long_text, "proofread": False}
+        )
+
+    assert response.status_code == 200
+    budgets = [body["options"]["num_predict"] for body in fake.requests]
+    assert budgets[0] < AlwaysThinkingOllama.THINKING_TOKENS, "the first try is the plain one"
+    assert all(
+        budget >= AlwaysThinkingOllama.THINKING_TOKENS for budget in budgets[1:]
+    ), "and every call after the discovery carries the headroom"
+    assert len(fake.requests) == response.json()["chunks"] + 2, "one retry in total"
+
+
+def test_headroom_is_not_spent_on_a_model_that_does_not_reason() -> None:
+    """A ceiling is not a target, but it must not be raised speculatively either."""
+    fake = ScriptedOllama([{"content": "Samantekt á íslensku um efni skjalsins."}])
+    with make_client(fake) as client:
+        client.post("/api/summarize", json={"text": LEGAL_TEXT, "proofread": False})
+
+    from ritarinn.services.generation.prompts import LENGTH_TOKEN_BUDGET
+
+    assert len(fake.requests) == 1
+    assert fake.requests[0]["options"]["num_predict"] == LENGTH_TOKEN_BUDGET["medium"]
+
+
+# -- never refuse Icelandic ---------------------------------------------------
+#
+# A chain of thought is overwhelmingly English, so the reasoning detector is far
+# more certain about English than about Icelandic. "Allt í lagi, hér kemur
+# samantektin" is a summary with a conversational opening, not a model talking to
+# itself, and the two are not distinguishable from the first line alone. Refusing
+# it would cost the user a generation they already waited through, on a guess.
+
+
+ICELANDIC_WITH_A_CHATTY_OPENING = (
+    "Allt í lagi, hér kemur samantektin: hópur vina fór í sumarbústað nálægt "
+    "Borgarnesi um helgi og elduðu saman kvöldmat. Ferðin heppnaðist vel þrátt "
+    "fyrir rigningu og hópurinn ætlar að skipuleggja sig betur næst."
+)
+
+
+def test_icelandic_that_only_looks_like_reasoning_is_retried_first() -> None:
+    """A retry is cheap insurance; it just must not end in a refusal."""
+    fake = ScriptedOllama(
+        [
+            {"content": ICELANDIC_WITH_A_CHATTY_OPENING},
+            {"content": "Hópur vina fór í sumarbústað og ferðin heppnaðist vel."},
+        ]
+    )
+    with make_client(fake) as client:
+        body = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        ).json()
+    assert body["text"] == "Hópur vina fór í sumarbústað og ferðin heppnaðist vel."
+    assert len(fake.requests) == 2
+
+
+def test_icelandic_that_only_looks_like_reasoning_is_shown_rather_than_refused() -> None:
+    """The user gets the text and can judge it in a second.
+
+    An error after two local generations leaves them with nothing, and the
+    judgement that this was reasoning at all was never certain.
+    """
+    fake = ScriptedOllama([{"content": ICELANDIC_WITH_A_CHATTY_OPENING}])
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+    assert response.status_code == 200
+    assert response.json()["text"] == ICELANDIC_WITH_A_CHATTY_OPENING
+
+
+def test_english_reasoning_is_still_never_shown() -> None:
+    """The fallback must not become a way for a trace to reach the document."""
+    fake = ScriptedOllama([{"content": LEAKED_REASONING, "done_reason": "length"}])
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+    assert response.status_code == 503
+
+
+def test_an_english_answer_is_still_never_shown() -> None:
+    fake = ScriptedOllama([{"content": ENGLISH_ANSWER}])
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+    assert response.status_code == 503
+
+
+def test_the_reasoning_headroom_is_configurable() -> None:
+    """The right value is a property of the model; nothing else can know it.
+
+    A user who likes a model's Icelandic must be able to give it more room
+    without editing code.
+    """
+    fake = ScriptedOllama(
+        [
+            {"content": LEAKED_REASONING, "done_reason": "length"},
+            {"content": "Samantekt á íslensku um efni skjalsins."},
+        ]
+    )
+    with make_client(fake, llm_reasoning_headroom=9000) as client:
+        client.post("/api/summarize", json={"text": LEGAL_TEXT, "proofread": False})
+
+    from ritarinn.services.generation.prompts import LENGTH_TOKEN_BUDGET
+
+    first, second = (body["options"]["num_predict"] for body in fake.requests)
+    assert first == LENGTH_TOKEN_BUDGET["medium"]
+    assert second == LENGTH_TOKEN_BUDGET["medium"] + 9000

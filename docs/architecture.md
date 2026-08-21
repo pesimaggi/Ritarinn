@@ -237,14 +237,48 @@ only text that positively looks like English is. `tests/backend/test_language.py
 weights its fixtures accordingly — quoted English inside Icelandic, first-person
 rewrites, bullet lists and single sentences all have to survive.
 
-A response that fails either check is retried **once**, with the chat-template
-reasoning switch and an explicit Icelandic instruction appended to the system
-prompt. The nudge is never sent speculatively — only to a model that has already
-demonstrated the problem — because a second generation on a CPU is a real cost.
-If the retry fails too, the request fails with an Icelandic explanation of which
-of the two things went wrong and what the user can do about it. It does not fall
-back to showing the text: there is no version of this feature where a model's
-reasoning belongs in someone's document.
+A response that fails either check is retried **once**. The retry changes two
+things at once, because there are two kinds of reasoning model and suppression
+reaches only one of them:
+
+- **the chat-template reasoning switch**, plus an explicit Icelandic
+  instruction, appended to the system prompt. This works for the model families
+  that have such a switch, and is also the fix when the first attempt was simply
+  in English.
+- **`Settings.llm_reasoning_headroom` of extra output budget.** A template that
+  opens the reasoning block unconditionally will reason whatever it is told, and
+  such a model can still write a good summary — it just has to think first.
+  Given room to finish it closes the block, and `clean_model_output` strips the
+  trace on the tag as it always could. Starved of it, the response is cut off
+  mid-thought and there is no tag to strip, which is the failure this path
+  exists for. It is a setting rather than a constant because how much room a
+  model needs is a property of that model, and nothing here can know it.
+
+Doing both is what makes a reasoning model usable rather than merely diagnosed.
+Neither is applied speculatively — only to a model that has already demonstrated
+the problem — because a second generation on a CPU is a real cost; and the
+headroom is free when the switch does work, since a cap is a ceiling and not a
+target. Both are then remembered against the model name for the life of the
+provider, so a long document pays for the discovery once rather than on every
+chunk, and choosing a different model starts clean.
+
+If the retry fails too, what happens depends on the language, because that is
+what the reasoning check is actually certain about.
+
+**English is refused.** A chain of thought in English is not a summary of an
+Icelandic document under any reading, and neither is an English answer. The
+request fails with an Icelandic explanation of which of the two went wrong and
+what the user can do about it. There is no version of this feature where a
+model's reasoning belongs in someone's document.
+
+**Icelandic is never refused.** The same opening in Icelandic is ambiguous —
+*"Allt í lagi, hér kemur samantektin"* is a summary with a conversational first
+line, and nothing in the first line distinguishes the two. So it is retried like
+anything else, and if the retry produces nothing better it is shown rather than
+raised, carried on `_NoAnswer.fallback`. The asymmetry is deliberate: a false
+positive here costs the user a generation they already waited through, on a
+guess the detector was never confident in, and they can see in a second whether
+the text is what they asked for.
 
 The same round trip also drops the `think` flag and retries if the runtime
 rejects it outright, which some versions do for a model with no thinking

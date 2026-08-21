@@ -115,6 +115,19 @@ class Settings:
     #: Low by default: these features must preserve meaning, not write prose.
     llm_temperature: float = 0.2
 
+    #: Extra output tokens granted to a model that has been caught reasoning, so
+    #: that it can finish thinking *and* write the answer. Not every reasoning
+    #: model can be told to stop; one that cannot needs room instead, and a
+    #: response cut off mid-thought is the failure this budget prevents.
+    #:
+    #: Exposed as a setting because the right value is a property of the model
+    #: and nothing else can know it. A model that reasons at length on a long
+    #: document may need more; raise this before giving up on a model whose
+    #: Icelandic you like. Costs nothing when unused — an output cap is a
+    #: ceiling, not a target — but a large value on slow hardware makes the
+    #: generation timeout the binding constraint instead.
+    llm_reasoning_headroom: int = 3072
+
     #: Roughly how much source text to put in one prompt, in characters.
     #: Chosen in characters rather than tokens because tokenisation differs per
     #: model, and Icelandic tokenises worse than English in most vocabularies —
@@ -202,6 +215,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         llm_model=env.get("RITARINN_LLM_MODEL", ""),
         llm_timeout_seconds=_env_float(env, "RITARINN_LLM_TIMEOUT", 300.0),
         llm_temperature=_env_float(env, "RITARINN_LLM_TEMPERATURE", 0.2),
+        llm_reasoning_headroom=_env_int(env, "RITARINN_LLM_REASONING_HEADROOM", 3072),
         llm_context_chars=_env_int(env, "RITARINN_LLM_CONTEXT_CHARS", 6000),
         byt5_enabled=_env_bool(env, "RITARINN_BYT5_ENABLED", False),
         byt5_model_path=env.get("RITARINN_BYT5_MODEL_PATH", ""),
