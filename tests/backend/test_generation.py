@@ -636,11 +636,14 @@ def test_untagged_reasoning_never_reaches_the_document() -> None:
     assert "hugsanaferli" in response.json()["detail"]
 
 
-def test_leaked_reasoning_is_retried_with_thinking_suppressed() -> None:
-    """One retry, because the model may well answer properly when told to.
+def test_leaked_reasoning_is_retried_by_letting_the_model_reason() -> None:
+    """The retry stops fighting the model rather than pushing harder.
 
-    A second local generation is a real cost on a CPU, so this happens only
-    after the model has already demonstrated the problem — never speculatively.
+    Suppression is tried first because it is fastest. When it does not take, the
+    answer is to let the model think and take what it writes afterwards — a
+    model that reasons is frequently the one the user chose *because* it
+    reasons. A second local generation is a real cost on a CPU, so this happens
+    only after the model has demonstrated the problem, never speculatively.
     """
     fake = ScriptedOllama(
         [
@@ -656,9 +659,11 @@ def test_leaked_reasoning_is_retried_with_thinking_suppressed() -> None:
     assert response.status_code == 200
     assert response.json()["text"] == "Vinahópur fór í sumarbústað og ferðin heppnaðist vel."
     assert len(fake.requests) == 2, "exactly one retry"
-    assert "/no_think" in fake.system_prompts[1], "the retry asks the template not to think"
-    assert "eingöngu á íslensku" in fake.system_prompts[1]
-    assert "/no_think" not in fake.system_prompts[0], "and the first attempt does not"
+
+    assert fake.requests[0]["think"] is False, "suppression is tried first, it is fastest"
+    assert fake.requests[1]["think"] is True, "then the runtime is asked to separate it"
+    assert "á íslensku" in fake.system_prompts[1], "and the language is restated"
+    assert fake.system_prompts[0] != fake.system_prompts[1]
 
 
 def test_a_successful_first_attempt_is_never_retried() -> None:
@@ -816,7 +821,7 @@ def test_every_length_leaves_room_to_finish_a_sentence() -> None:
         assert LENGTH_TOKEN_BUDGET[shorter] < LENGTH_TOKEN_BUDGET[longer]
 
 
-def test_a_model_that_needed_the_nudge_gets_it_from_then_on() -> None:
+def test_a_model_known_to_reason_skips_straight_to_the_second_strategy() -> None:
     """A long document is many generations; the discovery is paid for once.
 
     Without this, every chunk of a long document would repeat the leak and the
@@ -836,9 +841,9 @@ def test_a_model_that_needed_the_nudge_gets_it_from_then_on() -> None:
         )
 
     assert response.status_code == 200
-    # The first chunk leaked and was retried; every call after it starts nudged.
-    assert "/no_think" not in fake.system_prompts[0]
-    assert all("/no_think" in prompt for prompt in fake.system_prompts[1:])
+    # The first chunk leaked and was retried; every call after it starts there.
+    assert fake.requests[0]["think"] is False
+    assert all(body["think"] is True for body in fake.requests[1:])
     # One extra call in total — the retry — not one per chunk.
     assert len(fake.requests) == response.json()["chunks"] + 2
 

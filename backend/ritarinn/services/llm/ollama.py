@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Optional, Union
 
 import httpx
@@ -53,61 +53,86 @@ MODEL_MISSING_DETAIL = (
     "Líkanið {model!r} fannst ekki í Ollama. Sæktu það með: ollama pull {model}"
 )
 EMPTY_OUTPUT_DETAIL = "Staðbundna líkanið skilaði engum texta."
+
+#: The two failures a reasoning model produces, and what the user can do next.
+#:
+#: Both name the budget actually used and the setting that changes it. A message
+#: that only says "pick a different model" is useless to someone who has picked
+#: this one *because* it reasons, and it is usually wrong as well: the model is
+#: nearly always capable, and simply ran out of room to finish thinking. The
+#: number also makes the message self-diagnosing — it says which build produced
+#: it and what it had to work with, which a fixed sentence never did.
 THINKING_BUDGET_DETAIL = (
-    "Líkanið notaði allt svigrúmið í hugsanaferli og skilaði engri samantekt. "
-    "Veldu líkan sem ekki „hugsar“ upphátt, eða uppfærðu Ollama svo hægt sé að "
-    "slökkva á því."
+    "Líkanið notaði allt svigrúmið ({budget} tákn) í hugsanaferli og skilaði engri "
+    "niðurstöðu. Hækkaðu RITARINN_LLM_REASONING_HEADROOM (er {headroom}) og reyndu "
+    "aftur — líkanið þarf rými til að ljúka hugsun sinni áður en það svarar."
 )
 REASONING_LEAK_DETAIL = (
-    "Líkanið skilaði hugsanaferli sínu í stað niðurstöðu, líka eftir að beðið var "
-    "sérstaklega um að sleppa því. Veldu líkan sem ekki „hugsar“ upphátt, eða "
-    "uppfærðu Ollama svo hægt sé að slökkva á hugsanaferlinu."
+    "Líkanið var enn að hugsa þegar svigrúmið ({budget} tákn) kláraðist, svo "
+    "hugsanaferlið sjálft kom í stað niðurstöðunnar. Hækkaðu "
+    "RITARINN_LLM_REASONING_HEADROOM (er {headroom}) og reyndu aftur. "
+    "scripts/diagnose_model.py sýnir hvað líkanið skilar í raun."
 )
 NOT_ICELANDIC_DETAIL = (
     "Líkanið svaraði ekki á íslensku. Veldu líkan sem ræður betur við íslensku."
 )
 
-#: Appended to the system prompt on a retry, after the model has already
-#: returned its own reasoning or answered in the wrong language once.
+#: Appended to the system prompt on the retry. It restates the requirement that
+#: matters in Icelandic, and is also the fix when the first attempt was simply
+#: in English.
 #:
-#: The first line is the chat-template soft switch that several reasoning model
-#: families honour when the runtime's own ``think`` flag does not reach them —
-#: an older Ollama drops the flag, and a model whose template hardcodes the
-#: opening tag ignores it. The rest restates the two requirements in Icelandic,
-#: which is also the fix when the first attempt was simply in English.
-#:
-#: This is not model-specific configuration: it is sent only after this
-#: particular model has demonstrated the problem, and a model that does not
-#: recognise the switch is never sent it.
-#:
-#: The switch is only half the answer, because there are two kinds of reasoning
-#: model and it reaches only one of them. See ``REASONING_HEADROOM_TOKENS``.
-NO_THINKING_NUDGE = """\
-/no_think
-
-Svaraðu strax á íslensku og eingöngu á íslensku.
-Ekki skrifa hugsanaferli, undirbúning, greiningu á verkefninu né skýringar á \
-því hvað þú ætlar að gera. Skrifaðu aðeins lokatextann sjálfan."""
+#: Note what it does *not* say: it does not tell the model to stop thinking.
+#: Suppressing reasoning was the first thing tried here and it was the wrong
+#: instinct. A model that reasons is not misbehaving — the reasoning is often
+#: exactly why it was chosen — and the fix is to let it finish and then take
+#: what it wrote afterwards, not to fight its chat template.
+ANSWER_IN_ICELANDIC_NUDGE = """\
+Skrifaðu lokasvarið á íslensku og eingöngu á íslensku.
+Þegar þú hefur hugsað málið skaltu skila samfelldum texta — ekki greiningu á \
+verkefninu, ekki lýsingu á því hvað þú ætlar að gera, aðeins textann sjálfan."""
 
 
-#: How much extra output budget a model caught reasoning is given on the retry
-#: lives in ``Settings.llm_reasoning_headroom``, because the right value is a
-#: property of the model and nothing here can know it.
+@dataclass(frozen=True)
+class _Strategy:
+    """How to ask, on one attempt.
+
+    Two of these are used, in order, and they embody the whole lesson of this
+    module: ask for no reasoning first because it is fastest, and if the model
+    reasons anyway, stop fighting it.
+    """
+
+    #: Value of the runtime's own ``think`` flag.
+    think: bool
+    #: Extra text appended to the system prompt, if any.
+    nudge: Optional[str]
+    #: Whether to add ``Settings.llm_reasoning_headroom`` to the output cap.
+    headroom: bool
+
+
+#: First attempt: ask the runtime to switch reasoning off. When it works this is
+#: the fastest possible path — no reasoning tokens are generated at all — and
+#: for a model with no reasoning to switch off it costs nothing.
+NO_REASONING = _Strategy(think=False, nudge=None, headroom=False)
+
+#: Second attempt, after the first came back with reasoning in it. Three changes,
+#: each covering a different reason the first attempt could have failed:
 #:
-#: Why it exists: not every reasoning model can be talked out of reasoning. The
-#: soft switch above is a chat-template convention that some model families
-#: honour and others have no equivalent for, and a template that opens the
-#: reasoning block unconditionally will reason whatever it is told.
+#: * ``think=True`` asks the runtime to *separate* the reasoning rather than
+#:   suppress it. A runtime that understands the flag then returns the chain of
+#:   thought in ``message.thinking`` and the answer alone in ``message.content``
+#:   — the runtime's own parser doing the work, which is far more reliable than
+#:   recognising a trace by how it reads.
+#: * ``headroom`` gives a model whose runtime ignores the flag entirely room to
+#:   finish thinking, close its reasoning block and write the answer, which
+#:   ``clean_model_output`` then strips on the tag as it always could. Starved
+#:   of that room the response is cut off mid-thought, there is no tag to strip,
+#:   and that is the failure this whole path exists for.
+#: * the nudge restates the language requirement, which is the fix when the
+#:   first attempt was in English rather than reasoning.
 #:
-#: Such a model can still produce a perfectly good summary — it just has to
-#: think first, and it needs the room to finish. Given that room it closes the
-#: reasoning block, and ``clean_model_output`` strips the trace on the tag as it
-#: always could; starved of it, the response is cut off mid-thought and there is
-#: no tag to strip, which is the failure this whole path exists for.
-#:
-#: Granting the headroom costs nothing when the nudge does work, because an
-#: output cap is a ceiling and not a target: a model that answers immediately
-#: stops immediately. So the retry does both, and covers both kinds of model.
+#: Together they cover a modern runtime, an old one, and a model that simply
+#: answered in the wrong language, in a single extra generation.
+LET_IT_REASON = _Strategy(think=True, nudge=ANSWER_IN_ICELANDIC_NUDGE, headroom=True)
 
 
 @dataclass(frozen=True)
@@ -154,11 +179,11 @@ class OllamaProvider(LocalLLMProvider):
         self._settings = settings
         self._client = client
         # Models that have already returned reasoning, or the wrong language,
-        # at least once. A long document is many generations, and paying the
-        # retry on every one of them would double the wait on exactly the slow
+        # at least once. A long document is many generations, and rediscovering
+        # this on every one of them would double the wait on exactly the slow
         # hardware this is meant to stay usable on. Remembered per model name,
         # so choosing a different model starts clean.
-        self._needs_nudge: set[str] = set()
+        self._known_to_reason: set[str] = set()
 
     # -- internal -------------------------------------------------------------
 
@@ -253,17 +278,18 @@ class OllamaProvider(LocalLLMProvider):
         do with partial output yet. Streaming would improve the wait on slow
         hardware and is noted as future work in docs/roadmap.md.
 
-        A response that is not an Icelandic answer — a chain of thought, or an
-        answer in English — is retried once, with two changes that between them
-        cover both kinds of reasoning model: the thinking soft switch, for a
-        model that can be told to stop, and a much larger output budget, for one
-        that cannot and has to be allowed to finish instead. The retry costs a
-        second local generation, which on a CPU is not free; it is worth it
-        because the alternative is either pasting a model's private reasoning
-        into the user's document or refusing a summary the model could perfectly
-        well have written. A model that has needed the retry once gets both from
-        the start from then on, so a long document does not pay for the
-        discovery on every chunk.
+        Two strategies, in order. ``NO_REASONING`` first, because a model that
+        can simply skip reasoning answers fastest. If what comes back is
+        reasoning anyway, ``LET_IT_REASON`` stops fighting the model: it asks
+        the runtime to separate the chain of thought instead of suppressing it,
+        and grants the room to finish thinking if the runtime cannot. A model
+        that reasons is not misbehaving — that is frequently why it was chosen —
+        and the answer it writes after thinking is the one the user wants.
+
+        The second attempt costs another local generation, which on a CPU is not
+        free, so it is never made speculatively. A model that has needed it once
+        starts there from then on, and a long document pays for the discovery
+        once rather than on every chunk.
         """
         if not self._settings.ollama_enabled:
             raise ProviderUnavailableError(PROVIDER_NAME, DISABLED_DETAIL)
@@ -272,28 +298,22 @@ class OllamaProvider(LocalLLMProvider):
 
         started = time.perf_counter()
 
-        # A model that has already misbehaved once gets the treatment from the
-        # start, rather than rediscovering the problem on every chunk.
-        known_to_reason = request.model in self._needs_nudge
-        outcome = self._attempt(
-            self._with_reasoning_headroom(request) if known_to_reason else request,
-            nudge=NO_THINKING_NUDGE if known_to_reason else None,
-        )
+        # A model already known to reason starts on the second strategy, rather
+        # than rediscovering the problem on every chunk of a long document.
+        reasons = request.model in self._known_to_reason
+        outcome = self._attempt(request, LET_IT_REASON if reasons else NO_REASONING)
 
-        if isinstance(outcome, _NoAnswer) and not known_to_reason:
+        if isinstance(outcome, _NoAnswer) and not reasons:
             logger.info(
-                "model returned %s instead of an answer; retrying with thinking "
-                "suppressed and room to finish",
+                "model returned %s; retrying with reasoning separated and room to finish",
                 outcome.kind,
             )
-            self._needs_nudge.add(request.model)
-            outcome = self._attempt(
-                self._with_reasoning_headroom(request), nudge=NO_THINKING_NUDGE
-            )
+            self._known_to_reason.add(request.model)
+            outcome = self._attempt(request, LET_IT_REASON)
 
         if isinstance(outcome, _NoAnswer):
-            # The model was both told not to reason and given room to reason,
-            # and still returned nothing better.
+            # The model was given room to reason and asked to answer in
+            # Icelandic, and still returned nothing better.
             if outcome.fallback is not None:
                 # Icelandic that only looked like reasoning. Showing it is the
                 # lesser risk: the user can see it is wrong in a second, where
@@ -324,23 +344,15 @@ class OllamaProvider(LocalLLMProvider):
 
     # -- one round trip -------------------------------------------------------
 
-    def _with_reasoning_headroom(self, request: GenerationRequest) -> GenerationRequest:
-        """The same request, with room for a model to think before it answers.
-
-        Left alone when the request carries no cap at all, which is not a shape
-        any caller here uses — an uncapped local generation is the hang this
-        module exists to prevent — but the contract permits it.
-        """
-        if request.max_tokens is None:
-            return request
-        headroom = self._settings.llm_reasoning_headroom
-        return replace(request, max_tokens=request.max_tokens + headroom)
-
-    def _attempt(self, request: GenerationRequest, nudge: Optional[str]) -> _Outcome:
-        """Send one chat request and judge what came back."""
+    def _attempt(self, request: GenerationRequest, strategy: _Strategy) -> _Outcome:
+        """Send one chat request under *strategy* and judge what came back."""
         system_prompt = request.system_prompt
-        if nudge:
-            system_prompt = f"{system_prompt}\n\n{nudge}"
+        if strategy.nudge:
+            system_prompt = f"{system_prompt}\n\n{strategy.nudge}"
+
+        budget = request.max_tokens
+        if budget is not None and strategy.headroom:
+            budget += self._settings.llm_reasoning_headroom
 
         payload = {
             "model": request.model,
@@ -350,28 +362,34 @@ class OllamaProvider(LocalLLMProvider):
             ],
             "stream": False,
             "options": {"temperature": request.temperature},
-            # Reasoning models otherwise emit a chain of thought before the
-            # answer, which is not what the user asked to put in their document.
-            # Runtimes that do not know this flag ignore it, and the response
-            # cleaning below catches what slips through.
-            "think": False,
+            # False asks the runtime to switch reasoning off; True asks it to
+            # separate the reasoning from the answer instead. Runtimes that do
+            # not know the flag ignore it either way, and the response cleaning
+            # below catches what slips through.
+            "think": strategy.think,
         }
-        if request.max_tokens is not None:
+        if budget is not None:
             # An output cap is not optional for local generation: an unbounded
             # reasoning model on a CPU will happily run past any timeout, and
             # the user sees a hang rather than a result.
-            payload["options"]["num_predict"] = request.max_tokens
+            payload["options"]["num_predict"] = budget
 
         body = self._post_chat(payload)
         message = body.get("message") or {}
-        # A runtime that understands thinking returns it in its own field, and
-        # it is never part of the answer. Only its presence is of interest: it
-        # says the model reasoned, which explains an otherwise empty response.
+        # A runtime that understands reasoning returns it in its own field, and
+        # it is never part of the answer. Its presence also tells us the model
+        # reasoned, which explains an otherwise empty response.
         thought = str(message.get("thinking") or "").strip()
         text = clean_model_output(str(message.get("content", "")))
         stopped_at_cap = body.get("done_reason") == "length"
 
-        return _judge(text, thought=thought, stopped_at_cap=stopped_at_cap)
+        return _judge(
+            text,
+            thought=thought,
+            stopped_at_cap=stopped_at_cap,
+            budget=budget,
+            headroom=self._settings.llm_reasoning_headroom,
+        )
 
     def _post_chat(self, payload: dict) -> dict:
         """POST to the local chat endpoint and return the decoded body."""
@@ -416,18 +434,29 @@ class OllamaProvider(LocalLLMProvider):
             raise ProviderUnavailableError(PROVIDER_NAME, UNREACHABLE_DETAIL) from exc
 
 
-def _judge(text: str, thought: str, stopped_at_cap: bool) -> _Outcome:
+def _judge(
+    text: str,
+    thought: str,
+    stopped_at_cap: bool,
+    budget: Optional[int],
+    headroom: int,
+) -> _Outcome:
     """Decide whether cleaned model output is the answer the user asked for.
 
     Four ways a local model fails to answer, each needing a different sentence
-    to the user, because each has a different fix.
+    to the user, because each has a different fix. ``budget`` and ``headroom``
+    go into those sentences: a reasoning failure is nearly always a model that
+    ran out of room rather than a model that cannot do the job, and the numbers
+    are what let the user act on it.
     """
+    numbers = {"budget": budget if budget is not None else "ótakmarkað", "headroom": headroom}
+
     if not text:
         if stopped_at_cap or thought:
             # The model spent its whole output budget reasoning and never
             # reached an answer — a different problem for the user than a model
             # that simply returned nothing, and one they can act on.
-            return _NoAnswer("only-reasoning", THINKING_BUDGET_DETAIL)
+            return _NoAnswer("only-reasoning", THINKING_BUDGET_DETAIL.format(**numbers))
         return _NoAnswer("empty", EMPTY_OUTPUT_DETAIL)
 
     english = looks_like_english(text)
@@ -444,10 +473,10 @@ def _judge(text: str, thought: str, stopped_at_cap: bool) -> _Outcome:
         # ambiguous — "Allt í lagi, hér kemur samantektin" is a summary with a
         # conversational first line — so it earns a retry but not a refusal.
         if english:
-            return _NoAnswer("reasoning-leak", REASONING_LEAK_DETAIL)
+            return _NoAnswer("reasoning-leak", REASONING_LEAK_DETAIL.format(**numbers))
         return _NoAnswer(
             "reasoning-opener",
-            REASONING_LEAK_DETAIL,
+            REASONING_LEAK_DETAIL.format(**numbers),
             fallback=_Answer(text=text, truncated=stopped_at_cap),
         )
 

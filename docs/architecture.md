@@ -237,30 +237,56 @@ only text that positively looks like English is. `tests/backend/test_language.py
 weights its fixtures accordingly — quoted English inside Icelandic, first-person
 rewrites, bullet lists and single sentences all have to survive.
 
-A response that fails either check is retried **once**. The retry changes two
-things at once, because there are two kinds of reasoning model and suppression
-reaches only one of them:
+A response that fails either check is retried **once**, under a second strategy.
+The two strategies are the whole design, and the difference between them is the
+lesson this module learned the hard way:
 
-- **the chat-template reasoning switch**, plus an explicit Icelandic
-  instruction, appended to the system prompt. This works for the model families
-  that have such a switch, and is also the fix when the first attempt was simply
-  in English.
-- **`Settings.llm_reasoning_headroom` of extra output budget.** A template that
-  opens the reasoning block unconditionally will reason whatever it is told, and
-  such a model can still write a good summary — it just has to think first.
-  Given room to finish it closes the block, and `clean_model_output` strips the
-  trace on the tag as it always could. Starved of it, the response is cut off
-  mid-thought and there is no tag to strip, which is the failure this path
-  exists for. It is a setting rather than a constant because how much room a
-  model needs is a property of that model, and nothing here can know it.
+| | `NO_REASONING` (first) | `LET_IT_REASON` (retry) |
+|---|---|---|
+| `think` flag | `false` — switch reasoning off | `true` — *separate* it from the answer |
+| output cap | the length's budget | plus `Settings.llm_reasoning_headroom` |
+| system prompt | unchanged | restates "answer in Icelandic" |
 
-Doing both is what makes a reasoning model usable rather than merely diagnosed.
-Neither is applied speculatively — only to a model that has already demonstrated
-the problem — because a second generation on a CPU is a real cost; and the
-headroom is free when the switch does work, since a cap is a ceiling and not a
-target. Both are then remembered against the model name for the life of the
-provider, so a long document pays for the discovery once rather than on every
-chunk, and choosing a different model starts clean.
+Suppression is tried first only because it is the fastest path when it works: no
+reasoning tokens are generated at all. When it does not work, the instinct to
+push harder — a stronger instruction, a firmer switch — is wrong. **A model that
+reasons is not misbehaving.** It is frequently the model the user chose
+*because* it reasons, and the text it writes after thinking is exactly the
+summary they want. So the retry stops fighting it, and each of its three changes
+covers a different reason the first attempt could have failed:
+
+- `think=true` asks the runtime to parse the reasoning into `message.thinking`
+  and leave the answer alone in `message.content`. The runtime's own parser is
+  far more reliable than recognising a trace by how it reads, and this is the
+  path a current Ollama takes.
+- the headroom covers a runtime too old to know the flag at all. Given room to
+  finish, the model closes its reasoning block and `clean_model_output` strips
+  the trace on the tag as it always could. Starved of it, the response is cut
+  off mid-thought, there is no tag to strip, and that is the failure this whole
+  path exists for. It is a setting rather than a constant because how much room
+  a model needs is a property of that model, and nothing here can know it.
+- the nudge covers a first attempt that was simply in English.
+
+Neither strategy is applied speculatively — the retry costs a second local
+generation, which on a CPU is real — and the headroom is free when unused, since
+a cap is a ceiling and not a target. A model that has needed the retry is
+remembered against its name for the life of the provider, so a long document
+pays for the discovery once rather than on every chunk, and choosing a different
+model starts clean.
+
+### Diagnosing a model
+
+These failures are indistinguishable from the outside: the summary is missing
+and the error says the model was reasoning, whether the cause was an old
+runtime, a stubborn template, a cap that arrived mid-thought, or English. The
+error messages therefore carry the budget actually used and the setting that
+changes it, and `scripts/diagnose_model.py` runs a model against every strategy
+in turn and reports what came back for each — whether the runtime separated the
+reasoning, tokens generated, why generation stopped, what survived cleaning, and
+the verdict the application would have reached. Its verdicts are pinned against
+`text/language.py` in `tests/backend/test_diagnose_model.py`, because a
+diagnosis that disagrees with the code it diagnoses sends the user to change the
+wrong thing.
 
 If the retry fails too, what happens depends on the language, because that is
 what the reasoning check is actually certain about.

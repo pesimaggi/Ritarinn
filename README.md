@@ -134,28 +134,39 @@ a density Icelandic never reaches, or an opening that restates the request — a
 never shows it. The same check catches a model that summarises correctly but
 answers in English.
 
-It then retries once, doing two things at the same time, because there are two
-kinds of reasoning model and only one of them can be talked out of it:
+It then retries, and the retry stops fighting the model. Suppressing reasoning
+is tried first only because it is the fastest path when it works; when it does
+not, a model that reasons is not misbehaving — it is very often the model you
+chose *because* it reasons — and the answer it writes after thinking is the one
+you want. So the retry asks the runtime to **separate** the reasoning rather
+than suppress it, and gives the model room to finish thinking in case the
+runtime is too old to know how. Either way the chain of thought ends up where it
+belongs: out of your document, and not in place of the summary.
 
-- it asks the chat template not to reason, which works for the model families
-  that have a switch for it;
-- it raises the output cap sharply, which is what the others need. A model that
-  reasons unconditionally is not broken and its Icelandic may be excellent — it
-  just has to think first, and it needs room to finish. Given the room it closes
-  the reasoning block, and Ritarinn strips it on the tag as it always could.
-
-Raising the cap costs nothing when the switch does work, because a cap is a
-ceiling and not a target: a model that answers immediately stops immediately.
 Both are remembered for that model, so a long document pays for the discovery
 once rather than on every chunk, and neither is applied to a model that has not
-shown the problem.
+shown the problem. The extra room costs nothing when unused, because a cap is a
+ceiling and not a target.
 
-**If a model you like still fails this way, raise
-`RITARINN_LLM_REASONING_HEADROOM` before giving up on it.** How much room a
-model needs to finish thinking is a property of that model, and nothing in
-Ritarinn can know it; the default is a guess that suits most. Setting it high
-costs nothing when unused, though on slow hardware it makes `RITARINN_LLM_TIMEOUT`
-the next thing to hit.
+**If a model you like still fails this way, do not change models — find out
+why:**
+
+```bash
+python scripts/diagnose_model.py --model <model>
+```
+
+It runs your model against every strategy in turn and prints what actually came
+back: whether the runtime separated the reasoning, how many tokens were
+generated, why generation stopped, what survived cleaning, and what Ritarinn
+would have decided about it. Then it tells you which strategy worked and what to
+set. Use `--text-file` to try your own document. All of it goes to the same
+loopback endpoint the application uses.
+
+The usual answer is `RITARINN_LLM_REASONING_HEADROOM`: how much room a model
+needs to finish thinking is a property of that model, and nothing in Ritarinn
+can know it, so the default is only a guess. Setting it high costs nothing when
+unused, though on slow hardware it makes `RITARINN_LLM_TIMEOUT` the next thing
+to hit.
 
 One thing Ritarinn will not do is refuse Icelandic. A chain of thought is
 overwhelmingly English, so the check is far more certain about English than
@@ -327,7 +338,7 @@ All optional; the defaults are the local-first ones.
 | `RITARINN_LLM_TIMEOUT` | `300` | Seconds; a local model on a CPU is slow |
 | `RITARINN_LLM_TEMPERATURE` | `0.2` | Low: these features preserve meaning |
 | `RITARINN_LLM_CONTEXT_CHARS` | `6000` | Source characters per model call |
-| `RITARINN_LLM_REASONING_HEADROOM` | `3072` | Extra tokens for a model that must think first |
+| `RITARINN_LLM_REASONING_HEADROOM` | `4096` | Extra tokens for a model that must think first |
 | `RITARINN_LOG_LEVEL` | `INFO` | Logs never contain document text |
 
 ### Documentation
