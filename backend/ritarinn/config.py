@@ -29,6 +29,15 @@ DEFAULT_ALLOWED_ORIGINS = (
     "http://[::1]:5173",
 )
 
+#: Correction engines used when a request names none. GreynirCorrect only:
+#: it is the one engine every installation has.
+DEFAULT_CORRECTION_ENGINES = ("greynir",)
+
+#: The Icelandic correction checkpoint Ritarinn is written against. Recorded as
+#: a default rather than a constant in the adapter, so it can be replaced from
+#: configuration; licence and provenance are in ``THIRD_PARTY_NOTICES.md``.
+DEFAULT_BYT5_MODEL_ID = "mideind/yfirlestur-icelandic-correction-byt5"
+
 
 class ConfigurationError(ValueError):
     """Raised when configuration would violate Ritarinn's local-only guarantee."""
@@ -135,10 +144,48 @@ class Settings:
     #: a conservative character budget is more portable than a token estimate.
     llm_context_chars: int = 6000
 
-    # Optional neural correction engine (Milestone 4). Off until explicitly
-    # installed and enabled; it must never gate first startup.
+    # Which correction engines run when a request does not name any. A
+    # configuration value rather than a constant, so ByT5 can be switched on
+    # without editing application code. Names are validated when the registry
+    # is built, so a typo fails at startup rather than on the first request.
+    correction_engines: Sequence[str] = field(
+        default_factory=lambda: list(DEFAULT_CORRECTION_ENGINES)
+    )
+
+    # Optional neural correction engine (ByT5). Off until explicitly installed
+    # and enabled; it must never gate first startup.
     byt5_enabled: bool = False
+
+    #: Directory holding the model files. A local path is the reproducible,
+    #: offline-after-setup case and is what the provisioning script produces.
+    #: Empty means fall back to ``byt5_model_id``, resolved against the local
+    #: Hugging Face cache.
     byt5_model_path: str = ""
+
+    #: Model identifier used when no local path is set. Configurable because no
+    #: checkpoint should become a permanent architectural dependency.
+    #:
+    #: There is deliberately no "download it for me" setting: the adapter always
+    #: loads with downloads disabled, so neither startup nor a correction request
+    #: can reach the network. Fetching weights is ``scripts/install_byt5.py``,
+    #: which the user runs on purpose.
+    byt5_model_id: str = DEFAULT_BYT5_MODEL_ID
+
+    #: "auto" picks CUDA or Apple Silicon when present and CPU otherwise. An
+    #: explicit torch device string ("cpu", "cuda", "cuda:1", "mps") overrides
+    #: the detection, because the right answer on a multi-GPU machine is not
+    #: something Ritarinn can work out.
+    byt5_device: str = "auto"
+
+    #: Sentences longer than this are passed through uncorrected. A byte-level
+    #: seq2seq model costs time proportional to characters, not words, so one
+    #: pathological line should not stall a whole document.
+    byt5_max_sentence_chars: int = 2000
+
+    #: Output cap for one sentence, in bytes. ByT5 emits bytes, so this is a
+    #: character budget in effect; it is a multiple of the input length so a
+    #: long sentence is not truncated mid-word.
+    byt5_max_output_ratio: float = 1.5
 
     log_level: str = "INFO"
     max_text_chars: int = 100_000
@@ -205,6 +252,13 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         if origins_raw.strip()
         else list(DEFAULT_ALLOWED_ORIGINS)
     )
+
+    engines_raw = env.get("RITARINN_CORRECTION_ENGINES", "")
+    engines = (
+        [name.strip() for name in engines_raw.split(",") if name.strip()]
+        if engines_raw.strip()
+        else list(DEFAULT_CORRECTION_ENGINES)
+    )
     return Settings(
         host=env.get("RITARINN_HOST", DEFAULT_HOST),
         port=_env_int(env, "RITARINN_PORT", DEFAULT_PORT),
@@ -218,8 +272,13 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         llm_temperature=_env_float(env, "RITARINN_LLM_TEMPERATURE", 0.2),
         llm_reasoning_headroom=_env_int(env, "RITARINN_LLM_REASONING_HEADROOM", 4096),
         llm_context_chars=_env_int(env, "RITARINN_LLM_CONTEXT_CHARS", 6000),
+        correction_engines=engines,
         byt5_enabled=_env_bool(env, "RITARINN_BYT5_ENABLED", False),
         byt5_model_path=env.get("RITARINN_BYT5_MODEL_PATH", ""),
+        byt5_model_id=env.get("RITARINN_BYT5_MODEL_ID", DEFAULT_BYT5_MODEL_ID),
+        byt5_device=env.get("RITARINN_BYT5_DEVICE", "auto"),
+        byt5_max_sentence_chars=_env_int(env, "RITARINN_BYT5_MAX_SENTENCE_CHARS", 2000),
+        byt5_max_output_ratio=_env_float(env, "RITARINN_BYT5_MAX_OUTPUT_RATIO", 1.5),
         log_level=env.get("RITARINN_LOG_LEVEL", "INFO"),
         max_text_chars=_env_int(env, "RITARINN_MAX_TEXT_CHARS", 100_000),
     )

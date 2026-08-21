@@ -36,7 +36,7 @@ Local backend (127.0.0.1:8756)
    │
    ├── GreynirCorrect ──► GreynirEngine ──► BÍN (in-process, no network)
    │
-   ├── ByT5 neural correction        [not installed]
+   ├── ByT5 correction ──► PyTorch ──► weights on disk   [optional, off by default]
    │
    └── Ollama (127.0.0.1:11434) ──► a model already on disk
 ```
@@ -78,7 +78,7 @@ ritarinn/
     │   ├── chunking.py      structure-aware document splitting
     │   └── language.py      is this an Icelandic answer, or the model thinking?
     └── services/
-        ├── correction/      base.py · greynir.py · byt5.py · registry.py
+        ├── correction/      base.py · greynir.py · byt5.py · diffing.py · registry.py
         ├── llm/             base.py · ollama.py
         ├── generation/      prompts.py · base.py · postprocess.py
         ├── summarization/   service.py  (hierarchical)
@@ -86,8 +86,16 @@ ritarinn/
 ```
 
 The API layer never imports a concrete engine — it goes through
-`EngineRegistry` — so adding ByT5 or a hybrid engine is a registration change,
-not a routing change.
+`EngineRegistry` — so adding a correction provider, or a hybrid of two, is a
+registration change rather than a routing change. Which providers run by default
+is configuration (`RITARINN_CORRECTION_ENGINES`), so switching one on is not a
+code change either.
+
+Note the two separate provider abstractions in `services/`: `CorrectionEngine`
+for proofreading and `LocalLLMProvider` for generation. They are different model
+families doing different jobs, and keeping them apart is what stops a change of
+correction model from being able to move Samantekt, or the reverse. ByT5 is a
+correction model and nothing else; it is not a general-purpose backend.
 
 ## 4. Character offsets: the decision worth understanding
 
@@ -156,9 +164,10 @@ Three fields deserve comment:
   documented grouping over those codes (`docs/error-codes.md`), and an
   unrecognised code becomes `unknown` rather than a guess.
 - **`confidence`** is left unset unless an engine reports a genuine score.
-  GreynirCorrect does not, so Greynir issues never carry one. When Milestone 4
-  adds hybrid mode, agreement between two engines will be reported *as
-  agreement*, not converted into a percentage.
+  Neither shipped engine does: GreynirCorrect reports none, and the ByT5 model
+  reports none either, so neither invents one. When hybrid mode arrives,
+  agreement between two engines will be reported *as agreement*, not converted
+  into a percentage — two engines concurring is not a probability.
 - **`scope`** distinguishes an issue whose span *is* the problem from one that
   describes the whole sentence containing it (unparseable, very long, not
   Icelandic). Sentence-scope issues are listed in the sidebar but not
@@ -332,13 +341,57 @@ Samþykkja, Afrita and Hafna. Accepting dispatches one ordinary CodeMirror
 transaction, so Ctrl+Z undoes it like any other edit, which is what makes trying
 a rewrite safe.
 
-## 8. Model-agnosticism
+## 8. Neural correction: a rewrite made reviewable
+
+The ByT5 provider is the first engine that answers with a *rewritten sentence*
+rather than with annotations, and that difference is the whole of its design.
+
+**The problem.** A sequence-to-sequence corrector returns the corrected
+sentence. Showing the user that sentence, or substituting it for theirs, is the
+blind replacement Ritarinn refuses to do anywhere else — and it throws away the
+one thing that makes a correction reviewable: which words changed, and what they
+were before.
+
+**The decision.** The pair is diffed at word level (`correction/diffing.py`) and
+each differing region becomes one `WritingIssue` anchored to a character span of
+the original. The rest of the application cannot tell that this engine works
+differently from GreynirCorrect. The property the tests assert directly is that
+*applying the edits reproduces the corrected sentence exactly* — because the
+failure mode here is a silently corrupted document.
+
+Four consequences worth knowing:
+
+- **Insertions are re-anchored.** An inserted word has a zero-width span, and
+  the editor discards zero-width ranges, so such a suggestion would vanish
+  without a trace. Inserting *ekki* before *kom* is therefore expressed as
+  "kom" → "ekki kom": same document, underlineable span.
+- **Nothing is guessed.** The model publishes no error codes, no categories and
+  no confidence, so its issues carry none. They land in `unknown` — the same
+  treatment an unrecognised GreynirCorrect code gets — rather than being sorted
+  into "spelling" or "grammar" by us. `severity` is `warning`, because a neural
+  rewrite is a suggestion about a sentence and not a rule that was broken.
+- **Answers that are not corrections are dropped.** A model that runs out of
+  output budget, or answers something else entirely, produces text that diffs
+  into one enormous "replace this whole sentence" suggestion. Below a similarity
+  floor the answer is discarded and counted in `stats`; a single deletion
+  covering half a sentence is discarded too, since generation stopping early
+  looks exactly like that and no correction ever looks like it.
+- **Nothing model-shaped escapes.** Loading, tokenization, inference, device
+  selection and the checkpoint identifier all live in `correction/byt5.py`,
+  behind a `SentenceCorrector` protocol whose whole surface is
+  `correct(sentences) -> list[str]`. Importing Ritarinn does not import PyTorch,
+  and `tests/backend/test_byt5_correction.py` fails if a Transformers name
+  appears in executable code anywhere else. The model is loaded once and reused;
+  the loader is given `local_files_only=True` unconditionally, so no code path
+  in the application can start a download.
+
+## 9. Model-agnosticism
 
 Generative features are written against `LocalLLMProvider.generate(...)`, never
 against a model family. The model is a configuration value. This matters
 because Icelandic quality differs substantially between model families and will
 keep changing; the recommended default should be decided by Icelandic
-evaluation (Milestone 3), not by generic benchmarks.
+evaluation (Track A in `docs/roadmap.md`), not by generic benchmarks.
 
 The abstraction keeps three things apart that are easy to conflate:
 
@@ -356,7 +409,7 @@ no network, shell, or filesystem access.
 `tests/backend/test_llm_provider.py::test_provider_is_model_agnostic` fails if
 any model family is named in the provider's executable code.
 
-## 9. What this version deliberately does not do
+## 10. What this version deliberately does not do
 
 - **No generation without a local model.** Samantekt and Á mannamáli need a
   local model. If none is configured they return 503 and say so; there is no
@@ -364,24 +417,29 @@ any model family is named in the provider's executable code.
 - **No streaming.** Results appear only when complete, since a partial summary
   is not reviewable. On slow hardware this means a visible wait, with a cancel
   button. Streaming is noted in the roadmap.
-- **No ByT5.** It reports itself as an installable option, not a missing
-  feature. It never gates first startup.
+- **No ByT5 unless asked for.** The provider exists and can be installed, but it
+  is off by default and never gates first startup. Absent packages or absent
+  weights make it report itself unavailable — in Icelandic, with the command
+  that fixes it — and proofreading carries on with GreynirCorrect. It has not
+  been evaluated yet, and is not recommended.
 - **No automatic model download.** Nothing multi-gigabyte is fetched on the
-  user's behalf.
+  user's behalf, at setup, at startup or mid-request. `scripts/install_byt5.py`
+  is the only thing in the repository that downloads a model, and the user runs
+  it on purpose.
 - **No remote providers.** None exist. The architecture leaves room for opt-in
   remote providers later (`AIProvider → Local | Remote`), and the privacy
   endpoint would report them, but nothing of the sort is implemented.
 - **No persistence yet.** Drafts and settings are Milestone 5, in IndexedDB. No
   accounts, no sync, no server database.
 
-## 10. Logging
+## 11. Logging
 
 Logs record what happened, never what was written: counts, durations, error
 codes. A `NoDocumentTextFilter` on the root logger drops overlong messages as a
 backstop, but the real defence is that no call site passes document text to the
 logger. Prompts and model output are not logged either.
 
-## 11. Security posture
+## 12. Security posture
 
 - Dependencies pinned exactly, with a resolved lock file
   (`backend/requirements.lock.txt`); enforced by test.
@@ -395,7 +453,7 @@ logger. Prompts and model output are not logged either.
 - Ollama detection uses `trust_env=False`, so an ambient proxy variable cannot
   pull loopback traffic off the loopback interface.
 
-## 12. Editor choice
+## 13. Editor choice
 
 CodeMirror 6, for stable document positions that survive edits, range
 decorations, a real undo history, and correct paste/IME behaviour — all of which

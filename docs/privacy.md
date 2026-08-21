@@ -56,6 +56,22 @@ your own machine, over loopback, loaded from weights already on your disk.
 A model's *origin* does not imply a network dependency. A locally downloaded
 Qwen model runs without contacting Alibaba; the weights are just a file.
 
+## Correction is local, and opens no socket at all
+
+Proofreading does not even have a loopback endpoint. GreynirCorrect runs
+in-process, and the optional ByT5 corrector runs a model file through PyTorch in
+the same process — there is nothing to connect to.
+
+- The ByT5 adapter loads weights with downloads disabled, unconditionally. There
+  is no setting that turns that off, so no startup and no proofread can fetch
+  anything. A missing model is reported as a missing model.
+- Getting the weights onto the disk is `python scripts/install_byt5.py`, run by
+  you, once. It is the only thing in the repository that downloads a model, it
+  tells you what it is fetching and under what licence before it starts, and the
+  application never invokes it.
+- `tests/backend/test_byt5_correction.py` runs a full proofread with both
+  providers while every way of opening a socket is made to raise. It passes.
+
 ## Verify it yourself
 
 The strongest check is the simplest one:
@@ -137,11 +153,15 @@ Ritarinn distinguishes the **model**, the **runtime**, and the **service
 provider**. A model made by a given company does not require talking to that
 company: weights on disk are executed by a local runtime.
 
-- Ritarinn ships no weights and downloads none automatically.
+- Ritarinn ships no weights and downloads none automatically — not for
+  generation, and not for correction.
 - Models are given no network, shell or filesystem access.
 - Ollama detection uses `trust_env=False`, so an ambient `HTTP_PROXY` cannot
   route loopback traffic off the loopback interface.
 - GGUF and Safetensors are preferred over formats that execute code on load.
+  This is enforced, not merely preferred, for the ByT5 checkpoint: the pickled
+  `pytorch_model.bin` published alongside it is neither downloaded nor loaded,
+  and a directory containing only that file is not recognised as installed.
 
 ## If remote providers are ever added
 

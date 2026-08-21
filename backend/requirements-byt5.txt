@@ -1,0 +1,27 @@
+# Optional dependencies for the ByT5 neural correction provider.
+#
+# Deliberately NOT part of backend/requirements.txt. Ritarinn's proofreading,
+# summarization and rewriting all work without a line of this installed; the
+# neural corrector is an addition, and PyTorch is a large dependency with its
+# own licence and download consequences that nobody should acquire by accident.
+#
+# Installing these does not fetch the model. Weights are provisioned separately
+# and deliberately:
+#
+#     .venv/bin/pip install -r backend/requirements-byt5.txt
+#     .venv/bin/python scripts/install_byt5.py
+#
+# On a machine with no NVIDIA GPU, install the CPU-only PyTorch build instead of
+# the default wheel — it is a few hundred megabytes rather than several
+# gigabytes of CUDA libraries you will never load:
+#
+#     .venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu \
+#         torch==2.13.0
+#     .venv/bin/pip install -r backend/requirements-byt5.txt
+#
+# Versions are pinned exactly, like every other dependency in this project.
+
+torch==2.13.0             # PyTorch (BSD-3-Clause); executes the model
+transformers==5.15.1      # Hugging Face Transformers (Apache-2.0); ByT5 tokenizer + T5 model
+huggingface-hub==1.28.0   # (Apache-2.0); local cache lookup, and the download in scripts/install_byt5.py
+safetensors==0.8.0        # (Apache-2.0); the non-pickle weight format, which is the only one loaded

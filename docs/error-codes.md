@@ -89,3 +89,23 @@ corpus happens to exercise. Regenerate it with:
 ```bash
 python scripts/snapshot_corpus.py
 ```
+
+## The neural corrector has no codes
+
+Everything above is GreynirCorrect's vocabulary. The optional ByT5 provider has
+no vocabulary at all: it answers with a corrected sentence and says nothing about
+what was wrong or why.
+
+Ritarinn does not fill that in. Its issues carry `code: null`, the family label
+"Tauganetsleiðrétting", and `category: "unknown"` — the same category an
+unrecognised GreynirCorrect code gets, for the same reason. Guessing whether a
+given edit was "spelling" or "grammar" would be inventing a classification and
+attributing it to a model that made no such claim.
+
+`severity` is `"warning"` on all of them, because there is no upstream
+error/warning distinction to pass through and a neural rewrite is a suggestion
+about a sentence rather than a rule that was broken. `confidence` stays `null`:
+the model reports no score.
+
+Supplying real categories is possible — Miðeind publishes a companion
+classification model — and is noted in `docs/roadmap.md`, Track B stage 3.

@@ -154,5 +154,22 @@ try {
     Write-Host '    Proofreading works without it; it is only needed for summarization and simplification.' -ForegroundColor DarkGray
 }
 
+# --- optional: the neural corrector -------------------------------------------
+#
+# Reported, never installed. It needs PyTorch and a 2.3 GB download, and
+# proofreading does not depend on either.
+
+Write-Step 'Valfrjals tauganetsleidretting / Optional neural correction'
+
+& $venvPython -c 'import importlib.util, sys; sys.exit(0 if importlib.util.find_spec("torch") and importlib.util.find_spec("transformers") else 1)' 2>$null
+if ($LASTEXITCODE -eq 0) {
+    Write-Ok 'PyTorch og Transformers til stadar / present'
+    Write-Host '    Saektu likanid med: .venv\Scripts\python.exe scripts\install_byt5.py' -ForegroundColor DarkGray
+} else {
+    Write-Warn 'Ekki uppsett. Yfirlestur virkar an hennar. / Not installed; proofreading works without it.'
+    Write-Host '    Til ad profa hana: pip install -r backend\requirements-byt5.txt' -ForegroundColor DarkGray
+    Write-Host '    Sja README, kaflann um ByT5. / See the ByT5 section in the README.' -ForegroundColor DarkGray
+}
+
 Write-Host "`nUppsetningu lokid. / Setup complete." -ForegroundColor Green
 Write-Host "Keyrdu .\start.ps1 og opnadu http://127.0.0.1:5173`n"

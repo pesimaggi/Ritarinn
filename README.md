@@ -11,8 +11,15 @@ proofread on your own computer and is never sent to a cloud service.*
 > your own machine. The generative features need a local model through Ollama;
 > without one the application says so rather than quietly using a hosted one.
 >
-> **No default model is recommended yet.** Choosing one requires evaluating
-> Icelandic quality properly — that is Milestone 3.
+> **No default model is recommended yet**, for either job. Ritarinn keeps two
+> replaceable model families apart — *generative* models for Samantekt and Á
+> mannamáli, *correction* models for Yfirlestur — and picking a default for
+> either requires evaluating its Icelandic properly. Both evaluations are under
+> way in parallel; see [`docs/roadmap.md`](docs/roadmap.md).
+>
+> The optional [ByT5 neural corrector](#byt5--valfrjáls-tauganetsleiðrétting--optional-neural-correction)
+> can be installed and tried today. **Ritarinn is fully usable without it**, and
+> it is off unless you turn it on.
 >
 > "Ritarinn" is a temporary working name.
 
@@ -109,9 +116,13 @@ Ollama is a *runtime*, not a model, and Ritarinn only ever talks to it on
 **Which model?** Ritarinn deliberately does not say yet. Icelandic quality
 varies enormously between model families, and small models are noticeably weak
 at it — during development `gemma3:4b` wrote *taksins* for *talsins* on a
-two-sentence notice. Picking a recommended default is Milestone 3, and it should
-be decided by Icelandic evaluation rather than by generic benchmarks. Expect to
-need a larger model than you would for English.
+two-sentence notice. Picking a recommended default is Track A in
+[`docs/roadmap.md`](docs/roadmap.md) — under way now, and to be decided by
+Icelandic evaluation rather than by generic benchmarks. Expect to need a larger
+model than you would for English.
+
+Note that this is the *generative* model, and it is a separate choice from the
+correction provider below. Neither decides the other.
 
 Two failure modes are common enough to be worth knowing about before you choose.
 
@@ -179,6 +190,144 @@ for; an error after two local generations leaves you with nothing.
 Upgrading Ollama is worth doing regardless — newer versions honour the reasoning
 flag directly, which avoids the retry entirely, and on a CPU you will feel the
 difference.
+
+### ByT5 — valfrjáls tauganetsleiðrétting / optional neural correction
+
+Yfirlestur virkar að fullu án þessa. Þetta er viðbót, ekki forsenda.
+
+*Proofreading works completely without this.* GreynirCorrect is the default
+provider and stays that way. ByT5 is a second, optional correction provider: a
+neural model that reads a whole sentence in context, so it can see things a
+rule-based engine cannot. It is also slower, explains nothing, and is sometimes
+wrong. It has **not** been evaluated yet — installing it is trying it, not
+adopting it. See [`docs/roadmap.md`](docs/roadmap.md) for what still has to be
+measured.
+
+**The model.** `mideind/yfirlestur-icelandic-correction-byt5` — Miðeind ehf.,
+**CC BY-SA 4.0**, fine-tuned from `google/byt5-base` (Apache-2.0). 582M
+parameters, float32.
+
+- **Disk:** about 2.3 GB (`model.safetensors`; the pickled copy in the same
+  repository is deliberately not downloaded).
+- **Memory:** expect roughly 2.5–3 GB resident once loaded, plus whatever the
+  sentences in flight need. Runs on CPU.
+- **Speed:** not measured yet. A byte-level model costs time in proportion to
+  *characters*, not words, so on a CPU it is slow enough that you will notice.
+  Measuring it properly is part of the evaluation.
+
+Full licence details, the evidence they were verified from, and the one
+unresolved question — whether share-alike reaches text the model *produces* —
+are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), sections 1 and 6.
+
+**1. Install the optional dependencies.** They are not part of `./setup`, and
+PyTorch will never arrive because you installed a proofreader.
+
+```bash
+# CPU-only machine — a few hundred MB instead of several GB of CUDA libraries:
+.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
+
+.venv/bin/pip install -r backend/requirements-byt5.txt
+```
+
+Exactly four packages, pinned: `torch==2.13.0`, `transformers==5.15.1`,
+`huggingface-hub==1.28.0`, `safetensors==0.8.0`.
+
+**2. Fetch the weights, deliberately.** Ritarinn never downloads a model on your
+behalf — the application loads with downloads disabled, so neither startup nor a
+proofread can reach the network. This is the only thing that fetches anything:
+
+```bash
+.venv/bin/python scripts/install_byt5.py
+```
+
+It prints what it is about to fetch, from where, under what licence, and how much
+free space you have, then downloads into `models/byt5-icelandic-correction/`
+(already in `.gitignore`). Useful flags:
+
+```bash
+--target <dir>      # install somewhere else
+--revision <sha>    # pin a commit, for a reproducible install
+--model-id <id>     # a different checkpoint entirely; nothing is hardcoded
+--check             # verify an existing installation, downloading nothing
+--print-env         # print the configuration and exit
+```
+
+**3. Turn it on.**
+
+```bash
+export RITARINN_BYT5_ENABLED=1
+export RITARINN_BYT5_MODEL_PATH=$PWD/models/byt5-icelandic-correction
+./start
+```
+
+A local path is the reproducible option and works offline afterwards. Without
+one, `RITARINN_BYT5_MODEL_ID` is resolved against your local Hugging Face cache —
+still no download.
+
+By default ByT5 is available but not used unless a request asks for it. To run
+both providers on every proofread:
+
+```bash
+export RITARINN_CORRECTION_ENGINES=greynir,byt5
+```
+
+**4. Check that it is actually active.** Do not assume — the status endpoint
+reports what is loaded, including which checkpoint is answering:
+
+```bash
+curl -s http://127.0.0.1:8756/api/models/status
+```
+
+```json
+{
+  "correctionEngines": [
+    { "name": "greynir", "available": true, "version": "4.1.3" },
+    {
+      "name": "byt5",
+      "available": true,
+      "version": "/home/you/Ritarinn/models/byt5-icelandic-correction",
+      "localOnly": true
+    }
+  ]
+}
+```
+
+The same two rows appear in the interface under **Stillingar**. Or ask for the
+provider by name and see where the issues come from:
+
+```bash
+curl -s -X POST http://127.0.0.1:8756/api/proofread \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Þinngið samþikkti tilöguna.", "engines": ["byt5"]}'
+```
+
+Every issue in the response carries `"source": "byt5"`.
+
+**Switching it off** is removing `RITARINN_BYT5_ENABLED` (or setting it to `0`)
+and restarting. Nothing else changes; the weights stay on disk until you delete
+the directory. If the packages or the weights are missing, the provider reports
+itself unavailable — in Icelandic, with the command that fixes it — and
+proofreading carries on with GreynirCorrect.
+
+**What it does to your text: the same as everything else here, which is
+nothing.** The model answers with a rewritten sentence, and Ritarinn never shows
+you that. The rewrite is diffed against what you wrote and turned into
+individual word-level suggestions you accept or ignore one at a time. Your
+document is never replaced.
+
+**Provider selection variables**
+
+| Variable | Default | |
+|---|---|---|
+| `RITARINN_CORRECTION_ENGINES` | `greynir` | Comma-separated; which providers run when a request names none. An unknown name is a startup error |
+| `RITARINN_BYT5_ENABLED` | `0` | Off until you turn it on |
+| `RITARINN_BYT5_MODEL_PATH` | *(unset)* | Local checkpoint directory. Preferred: reproducible and offline |
+| `RITARINN_BYT5_MODEL_ID` | `mideind/yfirlestur-icelandic-correction-byt5` | Used when no path is set; local cache only, never downloaded |
+| `RITARINN_BYT5_DEVICE` | `auto` | `auto`, `cpu`, `cuda`, `cuda:1`, `mps` |
+| `RITARINN_BYT5_MAX_SENTENCE_CHARS` | `2000` | Longer lines are left alone rather than stalling the document |
+| `RITARINN_BYT5_MAX_OUTPUT_RATIO` | `1.5` | Output budget per sentence, as a multiple of its length in bytes |
+
+---
 
 <details>
 <summary>Manual installation</summary>
@@ -259,7 +408,7 @@ Full details, licences and open questions:
 | Endpoint | |
 |---|---|
 | `GET /api/health` | Liveness and readiness |
-| `POST /api/proofread` | Proofread text, return individual issues |
+| `POST /api/proofread` | Proofread text, return individual issues (`engines` selects providers) |
 | `GET /api/models/status` | What is installed and ready |
 | `GET /api/privacy/status` | Computed local-only facts |
 | `POST /api/summarize` | Summarize with the local model |
@@ -304,14 +453,21 @@ corrections. The response says so in `offsetUnit` rather than leaving clients to
 assume. See [`docs/architecture.md`](docs/architecture.md#4-character-offsets-the-decision-worth-understanding).
 
 Error codes come from GreynirCorrect verbatim; Ritarinn invents none, and
-fabricates no confidence scores. See [`docs/error-codes.md`](docs/error-codes.md).
+fabricates no confidence scores — from any provider. The neural corrector
+publishes no codes and no score, so its issues carry neither, rather than a
+guessed category or an invented percentage. See
+[`docs/error-codes.md`](docs/error-codes.md).
+
+`engines` in the response lists the providers that actually ran. A configured
+provider that turns out not to be installed is skipped and reported in `stats`,
+so proofreading degrades rather than failing.
 
 ---
 
 ## Þróun / Development
 
 ```bash
-.venv/bin/python -m pytest tests/backend     # 221 backend tests
+.venv/bin/python -m pytest tests/backend     # 381 backend tests
 cd frontend && npm test                      # 89 frontend tests
 cd frontend && npm run build                 # typecheck + production build
 
@@ -339,6 +495,8 @@ All optional; the defaults are the local-first ones.
 | `RITARINN_LLM_TEMPERATURE` | `0.2` | Low: these features preserve meaning |
 | `RITARINN_LLM_CONTEXT_CHARS` | `6000` | Source characters per model call |
 | `RITARINN_LLM_REASONING_HEADROOM` | `4096` | Extra tokens for a model that must think first |
+| `RITARINN_CORRECTION_ENGINES` | `greynir` | Which correction providers run by default |
+| `RITARINN_BYT5_*` | *(off)* | The optional neural corrector — [see above](#byt5--valfrjáls-tauganetsleiðrétting--optional-neural-correction) |
 | `RITARINN_LOG_LEVEL` | `INFO` | Logs never contain document text |
 
 ### Documentation
@@ -348,7 +506,7 @@ All optional; the defaults are the local-first ones.
 | [`docs/architecture.md`](docs/architecture.md) | Layering, offsets, issue model, model-agnosticism |
 | [`docs/privacy.md`](docs/privacy.md) | The guarantee, and how to verify it |
 | [`docs/error-codes.md`](docs/error-codes.md) | GreynirCorrect codes and Ritarinn's grouping |
-| [`docs/roadmap.md`](docs/roadmap.md) | Milestones 2–5 |
+| [`docs/roadmap.md`](docs/roadmap.md) | Shipped milestones, and the two parallel model tracks |
 | [`corpus/README.md`](corpus/README.md) | The Icelandic development corpus |
 
 Docker is available (`docker-compose.yml`) but is the optional path — Ritarinn

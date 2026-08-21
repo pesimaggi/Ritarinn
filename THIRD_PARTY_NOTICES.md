@@ -114,10 +114,54 @@ Byggt á íslenskri máltækni**, not only in this file.
 | **Name** | `yfirlestur-icelandic-correction-byt5` |
 | **Author/organization** | Miðeind ehf. |
 | **Source** | https://huggingface.co/mideind/yfirlestur-icelandic-correction-byt5 |
-| **License** | ⚠️ **Must be verified before the model is enabled.** Not established here, because v0.1 neither downloads nor loads it |
-| **Redistributed?** | No — and Ritarinn will not bundle model weights |
-| **Attribution requirement** | To be determined with the licence |
-| **Notes** | Milestone 4. Its licence, the licence of any base model it derives from, and checksums for the weights must all be recorded before the engine is enabled by default. |
+| **License** | **CC BY-SA 4.0** — verified; see the evidence below. Note the share-alike clause and the open question in section 6 |
+| **Base model** | `google/byt5-base` — **Apache-2.0** (https://huggingface.co/google/byt5-base) |
+| **Redistributed?** | No — Ritarinn bundles no model weights and downloads none automatically. `scripts/install_byt5.py` fetches them to the user's own machine, deliberately |
+| **Attribution requirement** | BY: credit Miðeind ehf. and link the licence. SA: an *adapted* version must be released under CC BY-SA 4.0 or a compatible licence |
+| **Notes** | Optional correction provider. Ritarinn is fully usable without it, and it is off unless explicitly installed and enabled. |
+
+**What was verified, and how.** Read from the Hugging Face model repository on
+2026-08-21, at commit `d628a9359dd021051c8d49a099fd04ee2865ef86`
+(last modified 2023-04-19):
+
+- the repository metadata carries the tag `license:cc-by-sa-4.0`, and the model
+  card's own YAML front matter states `license: cc-by-sa-4.0`. The two agree;
+- the card states the model "is based on the pretrained ByT5 model
+  (https://arxiv.org/abs/2105.13626) and finetuned on Icelandic error correction
+  data along with synthetic error data", trained with "the HuggingFace and
+  PyTorch libraries", and "trained to correct a single sentence at a time";
+- the card does **not** name the exact base checkpoint. `config.json` does,
+  implicitly and unambiguously: `d_model 1536`, `d_ff 3968`, `num_layers 18`,
+  `num_decoder_layers 6`, `num_heads 12`, `vocab_size 384`,
+  `tokenizer_class ByT5Tokenizer` — an exact match for `google/byt5-base`, whose
+  own configuration differs only in fields added by later Transformers releases.
+  `google/byt5-base` is tagged Apache-2.0;
+- weights: 581,653,248 parameters, float32. `model.safetensors` is 2,326,643,636
+  bytes. The repository also carries an identical `pytorch_model.bin`
+  (2,326,697,929 bytes), which Ritarinn does **not** download and does **not**
+  load — unpickling executes whatever is in the file, and the same weights are
+  available in a format that cannot.
+
+**What CC BY-SA 4.0 means here.** Attribution and share-alike attach to the
+*licensed material* — the weights. Ritarinn does not redistribute them, does not
+modify them, and does not bundle them, so the obligation that applies today is
+attribution, which this file and the application's Stillingar panel both carry.
+Anyone who fine-tunes this checkpoint, or ships an application with the weights
+inside it, is in different territory and should read the licence themselves.
+
+⚠️ **Unresolved, and deliberately not asserted either way:** whether text
+*produced* by the model is an "adaptation" that share-alike reaches. Creative
+Commons licences were written for creative works, not model weights, and CC
+itself advises against using them for software; there is no clause covering
+model output and no authoritative reading to cite. This does not affect a user
+proofreading their own document on their own machine — the case Ritarinn is
+built for — but it is a real question for anyone publishing corrected text under
+terms incompatible with BY-SA, and it is recorded in section 6 rather than
+answered here.
+
+**Checksums.** Not recorded yet. `scripts/install_byt5.py` accepts `--revision`,
+so an installation can be pinned to the commit above; per-file hashes should be
+recorded here before the provider is ever recommended by default.
 
 ---
 
@@ -152,9 +196,9 @@ recommendations — both were chosen for download size and speed on a CPU, and
 their Icelandic is visibly weak. They are not bundled, not referenced in code,
 and not defaulted to anywhere.
 
-Once a default model is recommended (Milestone 3), this section must record for
-each candidate: name, origin, licence, download size, memory requirement, and
-published checksums.
+Once a default generative model is recommended (Track A in `docs/roadmap.md`),
+this section must record for each candidate: name, origin, licence, download
+size, memory requirement, and published checksums.
 
 ---
 
@@ -170,6 +214,24 @@ published checksums.
 
 All are installed from PyPI at setup time. Attribution requirement for each is
 the standard MIT/BSD notice on redistribution.
+
+### Optional: the neural correction runtime
+
+Installed only by someone who chooses to run the ByT5 provider
+(`backend/requirements-byt5.txt`). None of it is part of a default installation,
+and nothing in Ritarinn imports any of it unless that provider is enabled.
+
+| Name | Version | Author | Source | License | Redistributed? |
+|---|---|---|---|---|---|
+| PyTorch | 2.13.0 | PyTorch contributors / Linux Foundation | https://github.com/pytorch/pytorch | BSD-3-Clause (the wheel also carries third-party components under their own terms) | No |
+| Transformers | 5.15.1 | Hugging Face | https://github.com/huggingface/transformers | Apache-2.0 | No |
+| huggingface-hub | 1.28.0 | Hugging Face | https://github.com/huggingface/huggingface_hub | Apache-2.0 | No |
+| safetensors | 0.8.0 | Hugging Face | https://github.com/huggingface/safetensors | Apache-2.0 | No |
+
+⚠️ The PyTorch wheels bundle a large set of third-party libraries, and the CUDA
+builds bundle NVIDIA components under NVIDIA's own terms. Anyone redistributing
+an environment with PyTorch in it should read `torch`'s bundled licence files
+rather than the top-level BSD-3-Clause line.
 
 ---
 
@@ -216,8 +278,12 @@ is a small, contained change.
 
 Flagged rather than answered:
 
-1. **ByT5 model licence** — unestablished. Must be resolved before Milestone 4
-   enables the engine.
+1. **ByT5 output and share-alike** — the model's own licence is settled
+   (CC BY-SA 4.0, verified above); what is *not* settled is whether share-alike
+   reaches text the model produces. No clause covers it and no authoritative
+   reading exists to cite. Local proofreading is unaffected; publishing
+   model-corrected text under an incompatible licence is the case that needs an
+   answer. Flagged, not resolved.
 2. **Icegrams corpus provenance** — the package is MIT, but the metadata does
    not restate the licence of the corpus its frequency counts derive from.
 3. **Yfirlestur** — not reviewed for licence terms, as it is not a dependency.
@@ -226,3 +292,9 @@ Flagged rather than answered:
    credit in section 1, not merely link to this file.
 5. **GreynirEngine version drift** — the MIT terms recorded here are for 3.8.0.
    Earlier releases were licensed differently.
+6. **ByT5 training data** — the model card says "Icelandic error correction data
+   along with synthetic error data" without naming a corpus or its terms. The
+   card also says it "will be updated soon along with citation reference"; it has
+   not been updated since April 2023. Unverified.
+7. **ByT5 weight checksums** — not recorded. An installation can be pinned to a
+   commit (`--revision`), which is weaker than a hash.
