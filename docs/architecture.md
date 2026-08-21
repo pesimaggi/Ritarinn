@@ -75,7 +75,8 @@ ritarinn/
     ├── models/              Pydantic schemas (the wire contract)
     ├── text/
     │   ├── offsets.py       UTF-16 ↔ code-point conversion
-    │   └── chunking.py      structure-aware document splitting
+    │   ├── chunking.py      structure-aware document splitting
+    │   └── language.py      is this an Icelandic answer, or the model thinking?
     └── services/
         ├── correction/      base.py · greynir.py · byt5.py · registry.py
         ├── llm/             base.py · ollama.py
@@ -210,6 +211,45 @@ Local models are also inconsistent about returning bare prose, so
 blocks from reasoning models, and a markdown fence wrapped around the entire
 answer. Markdown *inside* the text is left alone — the user may have asked for
 bullet points.
+
+### When the model returns something that is not an answer
+
+Stripping tags is not enough, because the worst case carries no tags. Ritarinn
+sends the runtime's `think: false` flag, but it does not always take effect: an
+older Ollama drops an unknown field, and a chat template that opens the
+reasoning block in the assistant prefix means the model never generates an
+opening tag at all. Cut that response off at the output cap, before the closing
+tag, and what comes back is a chain of thought with nothing whatsoever marking
+it as one. Tag stripping cannot see it, and the user gets the model's private
+notes about them in place of their summary.
+
+So the response is judged on content as well as on markup, in `text/language.py`:
+
+- **a chain of thought** — the response opens by restating the request rather
+  than by saying something about the document;
+- **the wrong language** — English function words at a density Icelandic never
+  reaches, together with no Icelandic orthography.
+
+Both detectors are deliberately one-sided. Rejecting a real summary costs the
+user a local generation they already waited through, so a false positive is
+expensive: Icelandic that merely lacks the marker words is never rejected, and
+only text that positively looks like English is. `tests/backend/test_language.py`
+weights its fixtures accordingly — quoted English inside Icelandic, first-person
+rewrites, bullet lists and single sentences all have to survive.
+
+A response that fails either check is retried **once**, with the chat-template
+reasoning switch and an explicit Icelandic instruction appended to the system
+prompt. The nudge is never sent speculatively — only to a model that has already
+demonstrated the problem — because a second generation on a CPU is a real cost.
+If the retry fails too, the request fails with an Icelandic explanation of which
+of the two things went wrong and what the user can do about it. It does not fall
+back to showing the text: there is no version of this feature where a model's
+reasoning belongs in someone's document.
+
+The same round trip also drops the `think` flag and retries if the runtime
+rejects it outright, which some versions do for a model with no thinking
+capability. The flag is an optimisation, not a requirement, and a runtime that
+refuses it must not cost the user the feature.
 
 ### Icelandic post-processing of generated text
 

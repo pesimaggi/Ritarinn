@@ -81,13 +81,23 @@ _LENGTH_GUIDANCE: dict[str, str] = {
 
 #: Roughly how many tokens each length may use. Local generation must always be
 #: capped: an uncapped reasoning model on a CPU runs until it hits a timeout,
-#: and the user sees a hang instead of a result. Set generously so output ends
-#: at a sentence rather than being cut off.
+#: and the user sees a hang instead of a result.
+#:
+#: Set well above what the length actually needs, for two reasons. Icelandic
+#: tokenises badly in vocabularies built mostly on English — inflected forms and
+#: compounds split into several pieces each — so an Icelandic sentence costs
+#: substantially more tokens than the same sentence in English, and a budget
+#: that looks generous counted in words is not. And a cap that bites produces
+#: the worst possible failure: the response stops mid-sentence, before the model
+#: has written whatever would have marked the end of its output.
+#:
+#: These are ceilings, not targets. A model that finishes early stops early; the
+#: only cost of raising them is the wait when something has already gone wrong.
 LENGTH_TOKEN_BUDGET: dict[str, int] = {
-    "very_short": 160,
-    "short": 400,
-    "medium": 800,
-    "detailed": 1600,
+    "very_short": 320,
+    "short": 640,
+    "medium": 1200,
+    "detailed": 2400,
 }
 
 _FORM_GUIDANCE: dict[str, str] = {
