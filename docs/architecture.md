@@ -237,14 +237,74 @@ only text that positively looks like English is. `tests/backend/test_language.py
 weights its fixtures accordingly — quoted English inside Icelandic, first-person
 rewrites, bullet lists and single sentences all have to survive.
 
-A response that fails either check is retried **once**, with the chat-template
-reasoning switch and an explicit Icelandic instruction appended to the system
-prompt. The nudge is never sent speculatively — only to a model that has already
-demonstrated the problem — because a second generation on a CPU is a real cost.
-If the retry fails too, the request fails with an Icelandic explanation of which
-of the two things went wrong and what the user can do about it. It does not fall
-back to showing the text: there is no version of this feature where a model's
-reasoning belongs in someone's document.
+A response that fails either check is retried **once**, under a second strategy.
+The two strategies are the whole design, and the difference between them is the
+lesson this module learned the hard way:
+
+| | `NO_REASONING` (first) | `LET_IT_REASON` (retry) |
+|---|---|---|
+| `think` flag | `false` — switch reasoning off | `true` — *separate* it from the answer |
+| output cap | the length's budget | plus `Settings.llm_reasoning_headroom` |
+| system prompt | unchanged | restates "answer in Icelandic" |
+
+Suppression is tried first only because it is the fastest path when it works: no
+reasoning tokens are generated at all. When it does not work, the instinct to
+push harder — a stronger instruction, a firmer switch — is wrong. **A model that
+reasons is not misbehaving.** It is frequently the model the user chose
+*because* it reasons, and the text it writes after thinking is exactly the
+summary they want. So the retry stops fighting it, and each of its three changes
+covers a different reason the first attempt could have failed:
+
+- `think=true` asks the runtime to parse the reasoning into `message.thinking`
+  and leave the answer alone in `message.content`. The runtime's own parser is
+  far more reliable than recognising a trace by how it reads, and this is the
+  path a current Ollama takes.
+- the headroom covers a runtime too old to know the flag at all. Given room to
+  finish, the model closes its reasoning block and `clean_model_output` strips
+  the trace on the tag as it always could. Starved of it, the response is cut
+  off mid-thought, there is no tag to strip, and that is the failure this whole
+  path exists for. It is a setting rather than a constant because how much room
+  a model needs is a property of that model, and nothing here can know it.
+- the nudge covers a first attempt that was simply in English.
+
+Neither strategy is applied speculatively — the retry costs a second local
+generation, which on a CPU is real — and the headroom is free when unused, since
+a cap is a ceiling and not a target. A model that has needed the retry is
+remembered against its name for the life of the provider, so a long document
+pays for the discovery once rather than on every chunk, and choosing a different
+model starts clean.
+
+### Diagnosing a model
+
+These failures are indistinguishable from the outside: the summary is missing
+and the error says the model was reasoning, whether the cause was an old
+runtime, a stubborn template, a cap that arrived mid-thought, or English. The
+error messages therefore carry the budget actually used and the setting that
+changes it, and `scripts/diagnose_model.py` runs a model against every strategy
+in turn and reports what came back for each — whether the runtime separated the
+reasoning, tokens generated, why generation stopped, what survived cleaning, and
+the verdict the application would have reached. Its verdicts are pinned against
+`text/language.py` in `tests/backend/test_diagnose_model.py`, because a
+diagnosis that disagrees with the code it diagnoses sends the user to change the
+wrong thing.
+
+If the retry fails too, what happens depends on the language, because that is
+what the reasoning check is actually certain about.
+
+**English is refused.** A chain of thought in English is not a summary of an
+Icelandic document under any reading, and neither is an English answer. The
+request fails with an Icelandic explanation of which of the two went wrong and
+what the user can do about it. There is no version of this feature where a
+model's reasoning belongs in someone's document.
+
+**Icelandic is never refused.** The same opening in Icelandic is ambiguous —
+*"Allt í lagi, hér kemur samantektin"* is a summary with a conversational first
+line, and nothing in the first line distinguishes the two. So it is retried like
+anything else, and if the retry produces nothing better it is shown rather than
+raised, carried on `_NoAnswer.fallback`. The asymmetry is deliberate: a false
+positive here costs the user a generation they already waited through, on a
+guess the detector was never confident in, and they can see in a second whether
+the text is what they asked for.
 
 The same round trip also drops the `think` flag and retries if the runtime
 rejects it outright, which some versions do for a model with no thinking
