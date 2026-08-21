@@ -61,6 +61,44 @@ class FakeOllama:
         return [body["messages"][0]["content"] for body in self.requests]
 
 
+class ScriptedOllama(FakeOllama):
+    """A fake that answers each successive call differently.
+
+    The retry path cannot be exercised with a single canned reply: its whole
+    point is that the second response differs from the first. Each turn is a
+    dict of ``content`` / ``thinking`` / ``done_reason``, or ``status`` for an
+    HTTP error. The last turn repeats once the script runs out, so a test that
+    wants "and it fails again" writes one turn.
+    """
+
+    def __init__(self, turns: list[dict]) -> None:
+        super().__init__()
+        self.turns = turns
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/api/chat":
+            return super().handler(request)
+        body = json.loads(request.content.decode("utf-8"))
+        self.requests.append(body)
+        turn = self.turns[min(len(self.requests) - 1, len(self.turns) - 1)]
+
+        if "status" in turn:
+            return httpx.Response(turn["status"], json={"error": turn.get("error", "")})
+
+        message = {"role": "assistant", "content": turn.get("content", "")}
+        if turn.get("thinking"):
+            message["thinking"] = turn["thinking"]
+        return httpx.Response(
+            200,
+            json={
+                "model": body["model"],
+                "message": message,
+                "done": True,
+                "done_reason": turn.get("done_reason", "stop"),
+            },
+        )
+
+
 def make_client(fake: FakeOllama, **settings_kwargs) -> TestClient:
     settings = Settings(llm_model="prófunarlíkan:latest", **settings_kwargs)
     app = create_app(settings)
@@ -559,3 +597,247 @@ def test_generation_option_defaults_match_the_service_defaults(request_model_nam
         assert request_model.model_fields[name].default == default, (
             f"{request_model_name}.{name} defaults differently from {options.__name__}"
         )
+
+
+# -- reasoning that carries no tag at all -------------------------------------
+#
+# The hard case, and the one seen in practice. A reasoning model whose chat
+# template puts ``<think>`` in the assistant prefix never generates an opening
+# tag, so the completion begins mid-thought; if the output cap arrives before
+# the model finishes reasoning, no closing tag is generated either. The response
+# is then a chain of thought with nothing whatsoever marking it as one, and tag
+# stripping — which is all Ritarinn had — cannot see it.
+
+
+LEAKED_REASONING = (
+    "Okay, let's tackle this problem. The user wants me to create two sentences "
+    "that capture the main points of the given Icelandic text. The text is about "
+    "a trip the narrator and friends took, specifically around Borgarnes.\n\n"
+    "First, I need to understand the key points. The main events are: they went "
+    "to a summer house, cooked food, had some issues with packing.\n\n"
+    "Wait, the user wants two sentences that summarize the main points. Let me check"
+)
+
+
+def test_untagged_reasoning_never_reaches_the_document() -> None:
+    """The reported failure: a chain of thought returned as the summary.
+
+    Nothing in the response is a tag, so it is caught by how it reads or not at
+    all. Handing this to the user would put a model's private notes about them
+    into their document.
+    """
+    fake = ScriptedOllama([{"content": LEAKED_REASONING, "done_reason": "length"}])
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+
+    assert response.status_code == 503
+    assert "hugsanaferli" in response.json()["detail"]
+
+
+def test_leaked_reasoning_is_retried_with_thinking_suppressed() -> None:
+    """One retry, because the model may well answer properly when told to.
+
+    A second local generation is a real cost on a CPU, so this happens only
+    after the model has already demonstrated the problem — never speculatively.
+    """
+    fake = ScriptedOllama(
+        [
+            {"content": LEAKED_REASONING, "done_reason": "length"},
+            {"content": "Vinahópur fór í sumarbústað og ferðin heppnaðist vel."},
+        ]
+    )
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["text"] == "Vinahópur fór í sumarbústað og ferðin heppnaðist vel."
+    assert len(fake.requests) == 2, "exactly one retry"
+    assert "/no_think" in fake.system_prompts[1], "the retry asks the template not to think"
+    assert "eingöngu á íslensku" in fake.system_prompts[1]
+    assert "/no_think" not in fake.system_prompts[0], "and the first attempt does not"
+
+
+def test_a_successful_first_attempt_is_never_retried() -> None:
+    """The retry must not become a second generation on the happy path."""
+    fake = ScriptedOllama([{"content": "Samantekt á íslensku um ferðalagið."}])
+    with make_client(fake) as client:
+        client.post("/api/summarize", json={"text": LEGAL_TEXT, "proofread": False})
+    assert len(fake.requests) == 1
+
+
+def test_a_model_that_keeps_thinking_is_reported_not_returned() -> None:
+    fake = ScriptedOllama([{"content": LEAKED_REASONING, "done_reason": "length"}])
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+    assert len(fake.requests) == 2, "tried twice before giving up"
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "hugsanaferli" in detail
+    assert "líkan" in detail, "the message says what the user can do about it"
+
+
+# -- answers in the wrong language --------------------------------------------
+
+
+ENGLISH_ANSWER = (
+    "The group of friends travelled to a summer house near Borgarnes for the "
+    "weekend. They cooked dinner together and agreed to plan the next trip more "
+    "carefully, writing a list of what to bring."
+)
+
+
+def test_an_answer_in_english_is_retried_in_icelandic() -> None:
+    """A correct summary in the wrong language is still not the feature."""
+    fake = ScriptedOllama(
+        [
+            {"content": ENGLISH_ANSWER},
+            {"content": "Vinahópur fór í sumarbústað og ætlar að skipuleggja sig betur."},
+        ]
+    )
+    with make_client(fake) as client:
+        body = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        ).json()
+    assert body["text"].startswith("Vinahópur")
+    assert len(fake.requests) == 2
+
+
+def test_an_answer_that_stays_english_is_reported() -> None:
+    fake = ScriptedOllama([{"content": ENGLISH_ANSWER}])
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+    assert response.status_code == 503
+    assert "íslensku" in response.json()["detail"]
+
+
+def test_icelandic_containing_an_english_quotation_is_not_retried() -> None:
+    """The language check must not fire on a document's own English material."""
+    quoted = (
+        "Í samningnum er vísað til skjalsins „Terms and Conditions of Service“ "
+        "frá 2019, og þar kemur fram að réttindi verði ekki framseld án samþykkis."
+    )
+    fake = ScriptedOllama([{"content": quoted}])
+    with make_client(fake) as client:
+        body = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        ).json()
+    assert body["text"] == quoted
+    assert len(fake.requests) == 1
+
+
+# -- the runtime's own thinking field -----------------------------------------
+
+
+def test_the_runtimes_thinking_field_is_never_part_of_the_answer() -> None:
+    """A runtime that understands thinking returns it separately. It is not output."""
+    fake = ScriptedOllama(
+        [
+            {
+                "thinking": "The user wants a summary. Let me identify the key points.",
+                "content": "Samantekt á íslensku um efni skjalsins.",
+            }
+        ]
+    )
+    with make_client(fake) as client:
+        body = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        ).json()
+    assert body["text"] == "Samantekt á íslensku um efni skjalsins."
+
+
+def test_thinking_with_no_answer_is_reported_as_a_thinking_model() -> None:
+    """Separated reasoning and an empty answer is the same failure, reported the same."""
+    fake = ScriptedOllama(
+        [{"thinking": "Let me work out what to say.", "content": "", "done_reason": "stop"}]
+    )
+    with make_client(fake) as client:
+        response = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        )
+    assert response.status_code == 503
+    assert "hugsanaferli" in response.json()["detail"]
+
+
+def test_a_runtime_that_rejects_the_thinking_flag_is_retried_without_it() -> None:
+    """Some runtime versions 400 the flag for a model with no thinking capability.
+
+    The flag is an optimisation — output cleaning handles a model that thinks
+    anyway — so a runtime that refuses it must not cost the user the feature.
+    """
+    fake = ScriptedOllama(
+        [
+            {"status": 400, "error": "model does not support thinking"},
+            {"content": "Samantekt á íslensku um efni skjalsins."},
+        ]
+    )
+    with make_client(fake) as client:
+        body = client.post(
+            "/api/summarize", json={"text": LEGAL_TEXT, "proofread": False}
+        ).json()
+
+    assert body["text"] == "Samantekt á íslensku um efni skjalsins."
+    assert "think" in fake.requests[0], "the flag is tried first"
+    assert "think" not in fake.requests[1], "and dropped when the runtime refuses it"
+
+
+def test_other_runtime_errors_are_not_retried_as_a_thinking_problem() -> None:
+    fake = ScriptedOllama([{"status": 500, "error": "internal server error"}])
+    with make_client(fake) as client:
+        response = client.post("/api/summarize", json={"text": LEGAL_TEXT})
+    assert response.status_code == 503
+    assert len(fake.requests) == 1, "a server error is not a thinking-flag problem"
+
+
+# -- the output cap -----------------------------------------------------------
+
+
+def test_every_length_leaves_room_to_finish_a_sentence() -> None:
+    """A cap that bites truncates mid-sentence, which is the worst failure mode.
+
+    Icelandic tokenises to noticeably more tokens per word than English in most
+    vocabularies, so budgets sized by eye from English are too small.
+    """
+    from ritarinn.services.generation.prompts import LENGTH_TOKEN_BUDGET
+
+    assert LENGTH_TOKEN_BUDGET["very_short"] >= 256
+    for shorter, longer in [
+        ("very_short", "short"),
+        ("short", "medium"),
+        ("medium", "detailed"),
+    ]:
+        assert LENGTH_TOKEN_BUDGET[shorter] < LENGTH_TOKEN_BUDGET[longer]
+
+
+def test_a_model_that_needed_the_nudge_gets_it_from_then_on() -> None:
+    """A long document is many generations; the discovery is paid for once.
+
+    Without this, every chunk of a long document would repeat the leak and the
+    retry, doubling the wait on exactly the slow hardware Ritarinn is meant to
+    stay usable on.
+    """
+    fake = ScriptedOllama(
+        [
+            {"content": LEAKED_REASONING, "done_reason": "length"},
+            {"content": "Samantekt á hluta skjalsins."},
+        ]
+    )
+    long_text = "\n\n".join(f"Málsgrein {n}. {LEGAL_TEXT}" for n in range(12))
+    with make_client(fake, llm_context_chars=400) as client:
+        response = client.post(
+            "/api/summarize", json={"text": long_text, "proofread": False}
+        )
+
+    assert response.status_code == 200
+    # The first chunk leaked and was retried; every call after it starts nudged.
+    assert "/no_think" not in fake.system_prompts[0]
+    assert all("/no_think" in prompt for prompt in fake.system_prompts[1:])
+    # One extra call in total — the retry — not one per chunk.
+    assert len(fake.requests) == response.json()["chunks"] + 2

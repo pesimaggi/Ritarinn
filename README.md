@@ -113,6 +113,34 @@ two-sentence notice. Picking a recommended default is Milestone 3, and it should
 be decided by Icelandic evaluation rather than by generic benchmarks. Expect to
 need a larger model than you would for English.
 
+Two failure modes are common enough to be worth knowing about before you choose.
+
+*A small model invents Icelandic words.* Inflection and compounding give it many
+plausible-looking ways to be wrong, and it takes them: forms that follow the
+shape of the language without being words. Ritarinn cannot fix this — the fix is
+a better model — but **Lesa yfir útkomuna** runs the generated text back through
+GreynirCorrect and lists what it flags, so invented words are visible rather than
+merely convincing. Leave it on.
+
+*A reasoning model returns its thinking instead of an answer.* Ritarinn asks the
+runtime to switch reasoning off, but the switch does not always arrive: an older
+Ollama drops the flag, and some chat templates open the reasoning block
+themselves, so the model never emits a tag that could be stripped. If the output
+cap then arrives mid-thought, the response is a chain of thought with nothing at
+all marking it as one.
+
+Ritarinn recognises such a response by how it reads — English function words at
+a density Icelandic never reaches, or an opening that restates the request — and
+never shows it. It retries once with the reasoning switched off explicitly, and
+if that also fails it says so instead of pasting the model's notes into your
+document. The same check catches a model that summarises correctly but answers
+in English.
+
+If you keep hitting it, upgrade Ollama first (newer versions honour the
+reasoning flag), and otherwise pick a model that does not reason aloud. The
+detection is a backstop, not a substitute: every retry is a second local
+generation, and on a CPU you will feel it.
+
 <details>
 <summary>Manual installation</summary>
 
